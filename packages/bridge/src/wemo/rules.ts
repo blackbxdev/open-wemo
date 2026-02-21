@@ -370,19 +370,44 @@ export async function fetchRulesDb(
   );
 
   if (!response.success) {
+    console.warn("[Rules] FetchRules failed, using empty rules DB", {
+      host,
+      port,
+      error: response.error ?? "Unknown error",
+    });
     return { dbBuffer: createEmptyRulesDb(), version: 0 };
   }
 
   const version = Number.parseInt(extractTextValue(response.data?.ruleDbVersion), 10) || 0;
   const ruleDbPath = extractTextValue(response.data?.ruleDbPath);
 
+  console.debug("[Rules] FetchRules response", {
+    host,
+    port,
+    version,
+    hasRuleDbPath: Boolean(ruleDbPath),
+    ruleDbPath,
+  });
+
   if (!ruleDbPath) {
+    console.warn("[Rules] Missing ruleDbPath from FetchRules, using empty rules DB", {
+      host,
+      port,
+      version,
+    });
     return { dbBuffer: createEmptyRulesDb(), version };
   }
 
   try {
     const zipResponse = await fetch(toRuleDbUrl(host, port, ruleDbPath));
     if (!zipResponse.ok) {
+      console.warn("[Rules] Failed to download rules ZIP, using empty rules DB", {
+        host,
+        port,
+        version,
+        status: zipResponse.status,
+        statusText: zipResponse.statusText,
+      });
       return { dbBuffer: createEmptyRulesDb(), version: 0 };
     }
 
@@ -391,11 +416,30 @@ export async function fetchRulesDb(
     const dbBuffer = files[RULES_DB_FILENAME] ?? Object.values(files)[0];
 
     if (!dbBuffer) {
+      console.warn("[Rules] Rules ZIP missing SQLite payload, using empty rules DB", {
+        host,
+        port,
+        version,
+        zipEntries: Object.keys(files),
+      });
       return { dbBuffer: createEmptyRulesDb(), version: 0 };
     }
 
+    console.debug("[Rules] Loaded rules DB", {
+      host,
+      port,
+      version,
+      zipEntries: Object.keys(files),
+      dbBytes: dbBuffer.length,
+    });
+
     return { dbBuffer, version };
   } catch {
+    console.warn("[Rules] Failed to parse downloaded rules DB, using empty rules DB", {
+      host,
+      port,
+      version,
+    });
     return { dbBuffer: createEmptyRulesDb(), version: 0 };
   }
 }
@@ -416,7 +460,18 @@ export async function storeRulesDb(
 ): Promise<void> {
   const zipped = zipSync({ [RULES_DB_FILENAME]: dbBuffer });
   const base64 = Buffer.from(zipped).toString("base64");
-  const body = `<ruleDbVersion>${version + 1}</ruleDbVersion><processDb>1</processDb><ruleDbBody>&lt;![CDATA[${base64}]]&gt;</ruleDbBody>`;
+  const nextVersion = version + 1;
+  const body = `<ruleDbVersion>${nextVersion}</ruleDbVersion><processDb>1</processDb><ruleDbBody><![CDATA[${base64}]]></ruleDbBody>`;
+
+  console.debug("[Rules] Storing rules DB", {
+    host,
+    port,
+    currentVersion: version,
+    nextVersion,
+    dbBytes: dbBuffer.length,
+    zipBytes: zipped.length,
+    base64Length: base64.length,
+  });
 
   const response = await soapRequest(
     host,
@@ -428,8 +483,22 @@ export async function storeRulesDb(
   );
 
   if (!response.success) {
+    console.error("[Rules] StoreRules failed", {
+      host,
+      port,
+      currentVersion: version,
+      nextVersion,
+      error: response.error ?? "Unknown error",
+    });
     throw new Error(`Failed to store rules DB: ${response.error ?? "Unknown error"}`);
   }
+
+  console.debug("[Rules] StoreRules succeeded", {
+    host,
+    port,
+    nextVersion,
+    statusCode: response.statusCode,
+  });
 }
 
 /**

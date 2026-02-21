@@ -2416,6 +2416,29 @@ body {
   min-height: var(--touch-target);
 }
 
+.timer-item-actions .toggle {
+  width: 48px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.timer-item-actions .toggle .toggle-track {
+  inset: 0;
+}
+
+.timer-item-actions .toggle .toggle-track::before {
+  width: 20px;
+  height: 20px;
+  left: 4px;
+  bottom: 4px;
+}
+
+.timer-item-actions .toggle input:checked + .toggle-track::before {
+  transform: translateX(20px);
+}
+
 .timer-item-actions .btn-icon {
   min-width: var(--touch-target);
 }

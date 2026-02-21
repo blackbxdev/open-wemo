@@ -344,7 +344,7 @@ function renderTimerLoading() {
   return `
     <div class="timer-loading">
       <div class="spinner"></div>
-      <div>Loading timers...</div>
+      <div>Loading timers, please wait.</div>
     </div>
   `;
 }
