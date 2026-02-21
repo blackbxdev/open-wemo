@@ -7,6 +7,12 @@ import { api } from "./api.js";
 // Device setup must now be done from the bridge (tray menu → "Setup New Device").
 // The following imports are kept for network detection only.
 import { NetworkMode, detectNetworkMode } from "./setup-mode.js";
+import {
+  closeTimerPanel,
+  initTimerPanel,
+  renderTimerButton,
+  toggleTimerPanel,
+} from "./timer-panel.js";
 
 // ============================================
 // State Management
@@ -495,6 +501,15 @@ function renderDevices() {
     return; // Keep showing initial loading
   }
 
+  for (const card of $app.querySelectorAll(".device-card[data-device-id]")) {
+    if (card.querySelector(".timer-panel")) {
+      const deviceId = card.dataset.deviceId;
+      if (deviceId) {
+        closeTimerPanel(deviceId);
+      }
+    }
+  }
+
   // Hide initial loading
   $initialLoading.classList.add("hidden");
 
@@ -591,6 +606,7 @@ function renderDeviceCard(device) {
           <div class="device-name">${escapeHtml(device.name)}</div>
           <div class="device-status ${statusClass}">${statusText}</div>
         </div>
+        ${renderTimerButton(device.id)}
         <label class="toggle">
           <input 
             type="checkbox" 
@@ -853,6 +869,15 @@ function attachDeviceListeners() {
     toggle.addEventListener("change", handleToggle);
   }
 
+  for (const timerBtn of $app.querySelectorAll('[data-action="timer"]')) {
+    const card = timerBtn.closest("[data-device-id]");
+    const isOffline = card?.querySelector(".device-status")?.classList.contains("is-offline");
+    if (isOffline) {
+      timerBtn.disabled = true;
+    }
+    timerBtn.addEventListener("click", handleTimerClick);
+  }
+
   // Discover button
   const discoverBtn = document.getElementById("discover-btn");
   if (discoverBtn) {
@@ -927,6 +952,17 @@ async function handleToggle(event) {
   } finally {
     toggle.disabled = false;
   }
+}
+
+/**
+ * Handles timer button click.
+ */
+function handleTimerClick(event) {
+  const btn = event.currentTarget;
+  const card = btn.closest("[data-device-id]");
+  if (!card) return;
+  const deviceId = card.dataset.deviceId;
+  toggleTimerPanel(deviceId, card);
 }
 
 /**
@@ -1661,6 +1697,10 @@ function setupEscapeKeyHandler() {
       if ($setupInstructionsModal && !$setupInstructionsModal.classList.contains("hidden")) {
         hideSetupInstructionsModal();
       }
+      const $timerFormModal = document.getElementById("timer-form-modal");
+      if ($timerFormModal) {
+        $timerFormModal.remove();
+      }
     }
   });
 }
@@ -1838,6 +1878,8 @@ async function init() {
 
   // Set up accessibility handlers
   setupEscapeKeyHandler();
+
+  initTimerPanel({ showToast, announceToScreenReader, trapFocus });
 
   // Handle visibility change (pause auto-refresh when tab hidden)
   document.addEventListener("visibilitychange", () => {
