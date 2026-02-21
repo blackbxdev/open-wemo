@@ -19,6 +19,7 @@
   },
   "dependencies": {
     "fast-xml-parser": "^5.3.3",
+    "fflate": "^0.8.2",
     "hono": "^4.11.4",
     "qrcode": "^1.5.4",
     "systray2": "^2.1.4"

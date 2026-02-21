@@ -206,3 +206,81 @@ export interface SavedDevice {
   /** Whether the device is currently reachable */
   isOnline?: boolean;
 }
+
+/**
+ * Action values for timer rules.
+ */
+export enum TimerAction {
+  Off = 0,
+  On = 1,
+  Toggle = 2,
+}
+
+/**
+ * Timer rule as stored on the WeMo device.
+ */
+export interface TimerRule {
+  ruleID: number;
+  name: string;
+  type: "Timer";
+  enabled: boolean;
+  /** Seconds from midnight (0-86400) */
+  startTime: number;
+  /** Seconds from midnight (optional, for on/off pairs) */
+  endTime?: number;
+  startAction: TimerAction;
+  endAction?: TimerAction;
+  /** -1=daily, bitmask for specific days */
+  dayId: number;
+}
+
+/**
+ * Schedule data fetched from a device.
+ */
+export interface TimerSchedule {
+  deviceId: string;
+  rules: TimerRule[];
+  dbVersion: number;
+}
+
+/**
+ * Input for creating a new timer rule.
+ */
+export interface CreateTimerInput {
+  name: string;
+  startTime: number;
+  endTime?: number;
+  startAction: TimerAction;
+  endAction?: TimerAction;
+  dayId: number;
+}
+
+/**
+ * Input for updating a timer rule.
+ */
+export interface UpdateTimerInput {
+  name?: string;
+  startTime?: number;
+  endTime?: number;
+  startAction?: TimerAction;
+  endAction?: TimerAction;
+  dayId?: number;
+  enabled?: boolean;
+}
+
+/**
+ * Day bitmask constants for timer schedules.
+ */
+export const DAYS = {
+  DAILY: -1,
+  SUN: 1,
+  MON: 2,
+  TUE: 4,
+  WED: 8,
+  THU: 16,
+  FRI: 32,
+  SAT: 64,
+  WEEKDAYS: 2 + 4 + 8 + 16 + 32,
+  WEEKENDS: 1 + 64,
+  ALL: 127,
+} as const;
