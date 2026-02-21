@@ -50,7 +50,7 @@ export function initTimerPanel(deps) {
  */
 export function renderTimerButton(deviceId) {
   return `
-    <button class="timer-btn" data-action="timer" data-device-id="${escapeHtml(deviceId)}" aria-label="Timers" aria-expanded="false">
+    <button class="timer-btn" data-action="timer" aria-label="Timers" aria-expanded="false">
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <circle cx="12" cy="12" r="10"/>
         <polyline points="12 6 12 12 16 14"/>
