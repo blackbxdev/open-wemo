@@ -8,6 +8,7 @@ import { Hono } from "hono";
 import { getDatabase } from "../../db";
 import { getDeviceByAddress } from "../../wemo/discovery";
 import { addTimer, deleteTimer, fetchTimers, toggleTimer, updateTimer } from "../../wemo/rules";
+import { loadDeviceRules } from "../../wemo/scheduler";
 import type { SavedDevice } from "../../wemo/types";
 import {
   DeviceNotFoundError,
@@ -132,6 +133,7 @@ timerRoutes.post("/", async (c) => {
       },
       udn
     );
+    loadDeviceRules(device.id, device.host, device.port).catch(() => {});
     return c.json({ timer: rule }, 201);
   } catch (error) {
     if (error instanceof DeviceOfflineError) throw error;
@@ -174,6 +176,7 @@ timerRoutes.patch("/:ruleId", async (c) => {
   try {
     const udn = await getDeviceUdn(device);
     const rule = await updateTimer(device.host, device.port, ruleIdNum, body, udn);
+    loadDeviceRules(device.id, device.host, device.port).catch(() => {});
     return c.json({ timer: rule });
   } catch (error) {
     if (error instanceof DeviceOfflineError) throw error;
@@ -199,6 +202,7 @@ timerRoutes.delete("/:ruleId", async (c) => {
   try {
     const udn = await getDeviceUdn(device);
     await deleteTimer(device.host, device.port, ruleIdNum, udn);
+    loadDeviceRules(device.id, device.host, device.port).catch(() => {});
     return c.json({ deleted: true, ruleId: ruleIdNum });
   } catch (error) {
     if (error instanceof DeviceOfflineError) throw error;
@@ -228,6 +232,7 @@ timerRoutes.patch("/:ruleId/toggle", async (c) => {
   try {
     const udn = await getDeviceUdn(device);
     const rule = await toggleTimer(device.host, device.port, ruleIdNum, body.enabled, udn);
+    loadDeviceRules(device.id, device.host, device.port).catch(() => {});
     return c.json({ timer: rule });
   } catch (error) {
     if (error instanceof DeviceOfflineError) throw error;

@@ -2419,6 +2419,7 @@ body {
 .timer-item-actions .toggle {
   width: 48px;
   height: 28px;
+  min-height: 28px;
   display: inline-flex;
   align-items: center;
   justify-content: center;

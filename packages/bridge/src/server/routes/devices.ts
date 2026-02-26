@@ -9,6 +9,7 @@ import { getDatabase } from "../../db";
 import { WemoDeviceClient } from "../../wemo/device";
 import { getDeviceByAddress } from "../../wemo/discovery";
 import { InsightDeviceClient, supportsInsight } from "../../wemo/insight";
+import { clearDeviceRules } from "../../wemo/scheduler";
 import type { SavedDevice, WemoDeviceType } from "../../wemo/types";
 import {
   DeviceNotFoundError,
@@ -295,6 +296,7 @@ deviceRoutes.delete("/:id", async (c) => {
 
   const db = getDatabase();
   db.deleteDevice(id);
+  clearDeviceRules(id);
 
   return c.json({ deleted: true, id });
 });

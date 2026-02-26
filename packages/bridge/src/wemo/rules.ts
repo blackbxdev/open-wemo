@@ -8,6 +8,7 @@
 import { Database } from "bun:sqlite";
 import { unzipSync, zipSync } from "fflate";
 import { extractTextValue, soapRequest } from "./soap";
+import { syncDeviceTime } from "./timesync";
 import {
   type CreateTimerInput,
   DAYS,
@@ -199,6 +200,12 @@ export function addRuleToDb(
       "INSERT INTO RULES (RuleID, Name, Type, RuleOrder, StartDate, EndDate, State, Sync) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)"
     ).run(nextRuleId, rule.name, "Timer", 0, "12201982", "07301982", "1", "NOSYNC");
 
+    const hasEndTime = rule.endTime !== undefined && rule.endTime > 0;
+    const effectiveEndTime = hasEndTime ? rule.endTime! : 86400;
+    const ruleDuration = hasEndTime
+      ? (rule.endTime! - rule.startTime + 86400) % 86400
+      : 86400 - rule.startTime;
+
     db.query(
       "INSERT INTO RULEDEVICES (RuleID, DeviceID, GroupID, DayID, StartTime, RuleDuration, StartAction, EndAction, SensorDuration, Type, Value, Level, ZBCapabilityStart, ZBCapabilityEnd, OnModeOffset, OffModeOffset, CountdownTime, EndTime) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)"
     ).run(
@@ -207,7 +214,7 @@ export function addRuleToDb(
       0,
       rule.dayId,
       rule.startTime,
-      -1,
+      ruleDuration,
       Number(rule.startAction),
       rule.endAction !== undefined ? Number(rule.endAction) : -1,
       -1,
@@ -219,7 +226,7 @@ export function addRuleToDb(
       -1,
       -1,
       -1,
-      rule.endTime ?? -1
+      effectiveEndTime
     );
 
     db.query("INSERT INTO TARGETDEVICES (RuleID, DeviceID, DeviceIndex) VALUES (?1, ?2, ?3)").run(
@@ -461,7 +468,7 @@ export async function storeRulesDb(
   const zipped = zipSync({ [RULES_DB_FILENAME]: dbBuffer });
   const base64 = Buffer.from(zipped).toString("base64");
   const nextVersion = version + 1;
-  const body = `<ruleDbVersion>${nextVersion}</ruleDbVersion><processDb>1</processDb><ruleDbBody><![CDATA[${base64}]]></ruleDbBody>`;
+  const body = `<ruleDbVersion>${nextVersion}</ruleDbVersion><processDb>1</processDb><ruleDbBody>&lt;![CDATA[${base64}]]&gt;</ruleDbBody>`;
 
   console.debug("[Rules] Storing rules DB", {
     host,
@@ -539,9 +546,11 @@ export async function addTimer(
 ): Promise<TimerRule> {
   const { dbBuffer, version } = await fetchRulesDb(host, port);
   const updatedDb = addRuleToDb(dbBuffer, rule, deviceUdn);
+  await syncDeviceTime(host, port);
   await storeRulesDb(host, port, updatedDb, version);
 
   const rules = parseRulesFromDb(updatedDb);
+
   const newRule = [...rules].sort((a, b) => a.ruleID - b.ruleID).at(-1);
   if (!newRule) {
     throw new Error("Failed to parse created timer rule");
@@ -570,9 +579,12 @@ export async function updateTimer(
 
   const { dbBuffer, version } = await fetchRulesDb(host, port);
   const updatedDb = updateRuleInDb(dbBuffer, ruleId, changes);
+  await syncDeviceTime(host, port);
   await storeRulesDb(host, port, updatedDb, version);
 
-  const updatedRule = parseRulesFromDb(updatedDb).find((rule) => rule.ruleID === ruleId);
+  const allRules = parseRulesFromDb(updatedDb);
+
+  const updatedRule = allRules.find((rule) => rule.ruleID === ruleId);
   if (!updatedRule) {
     throw new Error(`Timer rule ${ruleId} not found after update`);
   }
@@ -597,6 +609,7 @@ export async function deleteTimer(
 
   const { dbBuffer, version } = await fetchRulesDb(host, port);
   const updatedDb = deleteRuleFromDb(dbBuffer, ruleId);
+  await syncDeviceTime(host, port);
   await storeRulesDb(host, port, updatedDb, version);
 }
 
@@ -621,9 +634,12 @@ export async function toggleTimer(
 
   const { dbBuffer, version } = await fetchRulesDb(host, port);
   const updatedDb = toggleRuleInDb(dbBuffer, ruleId, enabled);
+  await syncDeviceTime(host, port);
   await storeRulesDb(host, port, updatedDb, version);
 
-  const updatedRule = parseRulesFromDb(updatedDb).find((rule) => rule.ruleID === ruleId);
+  const allRules = parseRulesFromDb(updatedDb);
+
+  const updatedRule = allRules.find((rule) => rule.ruleID === ruleId);
   if (!updatedRule) {
     throw new Error(`Timer rule ${ruleId} not found after toggle`);
   }

@@ -15,6 +15,7 @@ import {
 } from "./tray/menu";
 import { shouldShowWelcome } from "./tray/welcome";
 import { discoverDevices } from "./wemo/discovery";
+import { loadDeviceRules, startScheduler } from "./wemo/scheduler";
 
 /** Default server port (51515 chosen to avoid conflicts with common dev servers) */
 const DEFAULT_PORT = 51515;
@@ -25,6 +26,7 @@ interface AppState {
   tray: AppTray | null;
   isShuttingDown: boolean;
   startOnLogin: boolean;
+  scheduler: { stop: () => void } | null;
 }
 
 const state: AppState = {
@@ -32,6 +34,7 @@ const state: AppState = {
   tray: null,
   isShuttingDown: false,
   startOnLogin: false,
+  scheduler: null,
 };
 
 /**
@@ -119,7 +122,16 @@ async function initialize(): Promise<void> {
   console.log("[Main] Running initial device discovery...");
   runBackgroundDiscovery();
 
-  // Step 5: Show first-launch setup if needed
+  // Step 5: Start timer scheduler
+  console.log("[Main] Starting timer scheduler...");
+  state.scheduler = startScheduler();
+  const devices = getDatabase().getAllDevices();
+  for (const device of devices) {
+    loadDeviceRules(device.id, device.host, device.port).catch(() => {});
+  }
+  console.log(`[Main] Timer scheduler started (${devices.length} devices loaded)`);
+
+  // Step 6: Show first-launch setup if needed
   if (shouldShowWelcome()) {
     console.log("[Main] First launch detected, opening device setup page...");
     openInBrowser(`${getServerUrl(DEFAULT_PORT)}/setup`);
@@ -254,6 +266,13 @@ async function shutdown(): Promise<void> {
 
   state.isShuttingDown = true;
   console.log("[Main] Shutting down...");
+
+  // Step 0: Stop timer scheduler
+  if (state.scheduler) {
+    state.scheduler.stop();
+    state.scheduler = null;
+    console.log("[Main] Timer scheduler stopped");
+  }
 
   // Step 1: Stop HTTP server
   if (state.server) {
