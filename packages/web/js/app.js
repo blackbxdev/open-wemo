@@ -3,10 +3,17 @@
  */
 
 import { api } from "./api.js";
+import { log } from "./logger.js";
 // Note: PWA-based setup mode has been disabled due to browser CORS limitations.
 // Device setup must now be done from the bridge (tray menu → "Setup New Device").
 // The following imports are kept for network detection only.
 import { NetworkMode, detectNetworkMode } from "./setup-mode.js";
+import {
+  closeTimerPanel,
+  initTimerPanel,
+  renderTimerButton,
+  toggleTimerPanel,
+} from "./timer-panel.js";
 
 // ============================================
 // State Management
@@ -84,7 +91,7 @@ async function registerServiceWorker() {
   if ("serviceWorker" in navigator) {
     try {
       const registration = await navigator.serviceWorker.register("/sw.js");
-      console.log("[App] Service worker registered:", registration.scope);
+      log("[App] Service worker registered:", registration.scope);
 
       // Handle updates
       registration.addEventListener("updatefound", () => {
@@ -157,7 +164,7 @@ function isRunningStandalone() {
     minimalUIMedia ||
     previouslyInstalled;
 
-  console.log("[PWA] Standalone detection:", {
+  log("[PWA] Standalone detection:", {
     standaloneMedia,
     iosStandalone,
     androidTWA,
@@ -217,7 +224,7 @@ function dismissInstallBanner() {
 function showInstallBanner() {
   if ($installBanner && !pwaState.isStandalone && !pwaState.installBannerDismissed) {
     $installBanner.classList.remove("hidden");
-    console.log("[PWA] Showing install banner");
+    log("[PWA] Showing install banner");
   }
 }
 
@@ -277,7 +284,7 @@ function hideGenericInstallModal() {
  */
 async function triggerInstallPrompt() {
   if (!pwaState.deferredPrompt) {
-    console.log("[PWA] No deferred prompt available");
+    log("[PWA] No deferred prompt available");
     // If on iOS, show the iOS modal instead
     if (pwaState.isIOS) {
       showIOSInstallModal();
@@ -291,7 +298,7 @@ async function triggerInstallPrompt() {
 
     // Wait for the user to respond
     const { outcome } = await pwaState.deferredPrompt.userChoice;
-    console.log(`[PWA] User response to install prompt: ${outcome}`);
+    log(`[PWA] User response to install prompt: ${outcome}`);
 
     if (outcome === "accepted") {
       showToast("Installing app...", "success");
@@ -331,7 +338,7 @@ function setupPWAInstall() {
   pwaState.isIOS = isIOSDevice();
   pwaState.installBannerDismissed = wasInstallBannerDismissed();
 
-  console.log("[PWA] State:", {
+  log("[PWA] State:", {
     isStandalone: pwaState.isStandalone,
     isIOS: pwaState.isIOS,
     installBannerDismissed: pwaState.installBannerDismissed,
@@ -339,7 +346,7 @@ function setupPWAInstall() {
 
   // If already installed, nothing more to do
   if (pwaState.isStandalone) {
-    console.log("[PWA] App is already installed (standalone mode)");
+    log("[PWA] App is already installed (standalone mode)");
     hideInstallBanner();
     return;
   }
@@ -347,7 +354,7 @@ function setupPWAInstall() {
   // Listen for display mode changes (in case standalone is detected late)
   window.matchMedia("(display-mode: standalone)").addEventListener("change", (e) => {
     if (e.matches) {
-      console.log("[PWA] Display mode changed to standalone");
+      log("[PWA] Display mode changed to standalone");
       pwaState.isStandalone = true;
       hideInstallBanner();
       updateSettingsInstallButton();
@@ -361,7 +368,7 @@ function setupPWAInstall() {
 
     // Store the event for later use
     pwaState.deferredPrompt = e;
-    console.log("[PWA] beforeinstallprompt event captured");
+    log("[PWA] beforeinstallprompt event captured");
 
     // Show our custom install banner (if not dismissed)
     if (!pwaState.installBannerDismissed) {
@@ -374,7 +381,7 @@ function setupPWAInstall() {
 
   // Listen for successful installation
   window.addEventListener("appinstalled", () => {
-    console.log("[PWA] App was installed successfully");
+    log("[PWA] App was installed successfully");
     pwaState.isInstalled = true;
     pwaState.isStandalone = true;
     pwaState.deferredPrompt = null;
@@ -495,6 +502,15 @@ function renderDevices() {
     return; // Keep showing initial loading
   }
 
+  for (const card of $app.querySelectorAll(".device-card[data-device-id]")) {
+    if (card.querySelector(".timer-panel")) {
+      const deviceId = card.dataset.deviceId;
+      if (deviceId) {
+        closeTimerPanel(deviceId);
+      }
+    }
+  }
+
   // Hide initial loading
   $initialLoading.classList.add("hidden");
 
@@ -581,6 +597,16 @@ function renderDeviceCard(device) {
     `
       : "";
 
+  const configBtnHtml =
+    isInsight && !isOffline
+      ? `<button class="config-btn" data-action="config" aria-label="Device settings" aria-expanded="false">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="3"/>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+          </svg>
+        </button>`
+      : "";
+
   return `
     <div class="card device-card ${isInsight ? "device-card-insight" : ""}" data-device-id="${escapeHtml(device.id)}" data-device-type="${escapeHtml(device.deviceType)}">
       <div class="device-card-main">
@@ -591,6 +617,8 @@ function renderDeviceCard(device) {
           <div class="device-name">${escapeHtml(device.name)}</div>
           <div class="device-status ${statusClass}">${statusText}</div>
         </div>
+        ${configBtnHtml}
+        ${renderTimerButton(device.id)}
         <label class="toggle">
           <input 
             type="checkbox" 
@@ -853,6 +881,25 @@ function attachDeviceListeners() {
     toggle.addEventListener("change", handleToggle);
   }
 
+  for (const timerBtn of $app.querySelectorAll('[data-action="timer"]')) {
+    const card = timerBtn.closest("[data-device-id]");
+    const isOffline = card?.querySelector(".device-status")?.classList.contains("is-offline");
+    if (isOffline) {
+      timerBtn.disabled = true;
+    }
+    timerBtn.addEventListener("click", handleTimerClick);
+  }
+
+  // Config button (Insight devices)
+  for (const configBtn of $app.querySelectorAll('[data-action="config"]')) {
+    const card = configBtn.closest("[data-device-id]");
+    const isOffline = card?.querySelector(".device-status")?.classList.contains("is-offline");
+    if (isOffline) {
+      configBtn.disabled = true;
+    }
+    configBtn.addEventListener("click", handleConfigClick);
+  }
+
   // Discover button
   const discoverBtn = document.getElementById("discover-btn");
   if (discoverBtn) {
@@ -926,6 +973,124 @@ async function handleToggle(event) {
     showToast(error.message || "Failed to toggle device", "error");
   } finally {
     toggle.disabled = false;
+  }
+}
+
+async function handleThresholdChange(event) {
+  const input = event.target;
+  const card = input.closest("[data-device-id]");
+  const deviceId = card.dataset.deviceId;
+  const watts = Number.parseFloat(input.value);
+
+  if (Number.isNaN(watts) || watts < 0 || watts > 50) {
+    input.value = input._lastGoodValue || "";
+    showToast("Threshold must be between 0 and 50 watts", "error");
+    return;
+  }
+
+  try {
+    const result = await api.setThreshold(deviceId, watts);
+    input.value = result.thresholdWatts.toFixed(1);
+    input._lastGoodValue = input.value;
+  } catch (error) {
+    input.value = input._lastGoodValue || "";
+    showToast(error.message || "Failed to update threshold", "error");
+  }
+}
+
+async function handleThresholdReset(event) {
+  const btn = event.currentTarget;
+  const deviceId = btn.dataset.thresholdReset;
+  const input = document.querySelector(`[data-threshold-input="${deviceId}"]`);
+
+  btn.disabled = true;
+  try {
+    const result = await api.resetThreshold(deviceId);
+    if (input) {
+      input.value = result.thresholdWatts.toFixed(1);
+      input._lastGoodValue = input.value;
+    }
+  } catch (error) {
+    showToast(error.message || "Failed to reset threshold", "error");
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function handleTimerClick(event) {
+  const btn = event.currentTarget;
+  const card = btn.closest("[data-device-id]");
+  if (!card) return;
+  const deviceId = card.dataset.deviceId;
+
+  const configPanel = card.querySelector(".device-config-panel");
+  if (configPanel) {
+    configPanel.remove();
+    const configBtn = card.querySelector('[data-action="config"]');
+    if (configBtn) configBtn.setAttribute("aria-expanded", "false");
+  }
+
+  toggleTimerPanel(deviceId, card);
+}
+
+function handleConfigClick(event) {
+  const btn = event.currentTarget;
+  const card = btn.closest("[data-device-id]");
+  if (!card) return;
+  const deviceId = card.dataset.deviceId;
+
+  const existingPanel = card.querySelector(".device-config-panel");
+  if (existingPanel) {
+    existingPanel.remove();
+    btn.setAttribute("aria-expanded", "false");
+    return;
+  }
+
+  closeTimerPanel(deviceId);
+
+  const main = card.querySelector(".device-card-main");
+  if (!main) return;
+
+  const panel = document.createElement("div");
+  panel.className = "device-config-panel";
+  panel.innerHTML = `
+    <div class="threshold-control" data-threshold-control="${escapeHtml(deviceId)}">
+      <div class="threshold-label">Standby Threshold</div>
+      <div class="threshold-input-group">
+        <input type="number" min="0" max="50" step="0.5"
+               data-threshold-input="${escapeHtml(deviceId)}"
+               placeholder="--" disabled>
+        <span class="threshold-unit">W</span>
+        <button class="threshold-reset" data-threshold-reset="${escapeHtml(deviceId)}"
+                title="Reset to default" disabled>Reset</button>
+      </div>
+    </div>
+  `;
+
+  main.insertAdjacentElement("afterend", panel);
+  btn.setAttribute("aria-expanded", "true");
+
+  const input = panel.querySelector("[data-threshold-input]");
+  const resetBtn = panel.querySelector("[data-threshold-reset]");
+  if (input) input.addEventListener("change", handleThresholdChange);
+  if (resetBtn) resetBtn.addEventListener("click", handleThresholdReset);
+
+  fetchThresholdForPanel(deviceId, panel);
+}
+
+async function fetchThresholdForPanel(deviceId, panel) {
+  try {
+    const result = await api.getThreshold(deviceId);
+    const input = panel.querySelector("[data-threshold-input]");
+    if (input && result.thresholdWatts != null) {
+      input.value = result.thresholdWatts.toFixed(1);
+      input.disabled = false;
+      input._lastGoodValue = input.value;
+      const resetBtn = panel.querySelector("[data-threshold-reset]");
+      if (resetBtn) resetBtn.disabled = false;
+    }
+  } catch (error) {
+    console.error("[App] Failed to fetch threshold:", error);
   }
 }
 
@@ -1285,7 +1450,7 @@ async function loadDevices() {
     if (networkMode === NetworkMode.SETUP_MODE) {
       // User is on Wemo AP - show bridge-required message
       // PWA cannot do setup due to browser CORS restrictions
-      console.log("[App] Detected Wemo AP - showing bridge-required message");
+      log("[App] Detected Wemo AP - showing bridge-required message");
       state.loading = false;
       renderDevices();
       showSetupInstructionsModal();
@@ -1297,7 +1462,7 @@ async function loadDevices() {
     if (cached) {
       state.devices = cached.devices;
       state.lastUpdated = cached.timestamp;
-      console.log("[App] Loaded cached devices from", new Date(cached.timestamp).toLocaleString());
+      log("[App] Loaded cached devices from", new Date(cached.timestamp).toLocaleString());
     } else {
       state.devices = [];
     }
@@ -1334,24 +1499,27 @@ function startAutoRefresh() {
 
   const interval = state.settings.refreshInterval;
   if (interval <= 0) {
-    console.log("[App] Auto-refresh disabled");
+    log("[App] Auto-refresh disabled");
     return;
   }
 
   autoRefreshTimer = setInterval(async () => {
     // Skip refresh in setup mode - user is selecting text
     if (state.networkMode === NetworkMode.SETUP_MODE) {
-      console.log("[App] Auto-refresh skipped (setup mode)");
+      log("[App] Auto-refresh skipped (setup mode)");
       return;
     }
-    // Only refresh if page is visible
+    if (document.querySelector(".timer-panel, .device-config-panel, .modal:not(.hidden)")) {
+      log("[App] Auto-refresh skipped (UI active)");
+      return;
+    }
     if (document.visibilityState === "visible" && !state.loading) {
-      console.log("[App] Auto-refreshing devices...");
+      log("[App] Auto-refreshing devices...");
       await loadDevices();
     }
   }, interval);
 
-  console.log(`[App] Auto-refresh started (${interval / 1000}s)`);
+  log(`[App] Auto-refresh started (${interval / 1000}s)`);
 }
 
 /**
@@ -1567,7 +1735,7 @@ function startRetryTimer() {
 
   retryTimer = setInterval(async () => {
     if (state.isOffline && document.visibilityState === "visible") {
-      console.log("[App] Attempting to reconnect...");
+      log("[App] Attempting to reconnect...");
       await loadDevices();
 
       if (!state.isOffline) {
@@ -1660,6 +1828,10 @@ function setupEscapeKeyHandler() {
       }
       if ($setupInstructionsModal && !$setupInstructionsModal.classList.contains("hidden")) {
         hideSetupInstructionsModal();
+      }
+      const $timerFormModal = document.getElementById("timer-form-modal");
+      if ($timerFormModal) {
+        $timerFormModal.remove();
       }
     }
   });
@@ -1811,7 +1983,7 @@ async function generateQRCode() {
 // ============================================
 
 async function init() {
-  console.log("[App] Initializing Open Wemo...");
+  log("[App] Initializing Open Wemo...");
 
   // Load settings from localStorage
   loadSettings();
@@ -1839,6 +2011,8 @@ async function init() {
   // Set up accessibility handlers
   setupEscapeKeyHandler();
 
+  initTimerPanel({ showToast, announceToScreenReader, trapFocus });
+
   // Handle visibility change (pause auto-refresh when tab hidden)
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible") {
@@ -1853,7 +2027,7 @@ async function init() {
   // Start auto-refresh (if enabled)
   startAutoRefresh();
 
-  console.log("[App] Initialization complete");
+  log("[App] Initialization complete");
 }
 
 // Start the app

@@ -9,6 +9,7 @@ import { getDatabase } from "../../db";
 import { WemoDeviceClient } from "../../wemo/device";
 import { getDeviceByAddress } from "../../wemo/discovery";
 import { InsightDeviceClient, supportsInsight } from "../../wemo/insight";
+import { clearDeviceRules } from "../../wemo/scheduler";
 import type { SavedDevice, WemoDeviceType } from "../../wemo/types";
 import {
   DeviceNotFoundError,
@@ -295,6 +296,7 @@ deviceRoutes.delete("/:id", async (c) => {
 
   const db = getDatabase();
   db.deleteDevice(id);
+  clearDeviceRules(id);
 
   return c.json({ deleted: true, id });
 });
@@ -392,5 +394,52 @@ deviceRoutes.get("/:id/insight", async (c) => {
     id: device.id,
     power: powerData,
     raw: rawParams,
+  });
+});
+
+deviceRoutes.get("/:id/threshold", async (c) => {
+  const device = requireDevice(c.req.param("id"));
+  const client = await getInsightClient(device);
+  const thresholdMilliwatts = await client.getPowerThreshold();
+  return c.json({
+    id: device.id,
+    thresholdWatts: thresholdMilliwatts / 1000,
+    thresholdMilliwatts,
+  });
+});
+
+deviceRoutes.put("/:id/threshold", async (c) => {
+  const device = requireDevice(c.req.param("id"));
+  const body = await c.req.json<{ watts?: unknown }>();
+
+  if (
+    typeof body.watts !== "number" ||
+    !Number.isFinite(body.watts) ||
+    body.watts < 0 ||
+    body.watts > 50
+  ) {
+    throw new ValidationError("Invalid watts: must be a number between 0 and 50", ["watts"]);
+  }
+
+  const client = await getInsightClient(device);
+  const milliwatts = Math.round(body.watts * 1000);
+  await client.setPowerThreshold(milliwatts);
+
+  return c.json({
+    id: device.id,
+    thresholdWatts: milliwatts / 1000,
+    thresholdMilliwatts: milliwatts,
+  });
+});
+
+deviceRoutes.post("/:id/threshold/reset", async (c) => {
+  const device = requireDevice(c.req.param("id"));
+  const client = await getInsightClient(device);
+  await client.resetPowerThreshold();
+  const confirmedMilliwatts = await client.getPowerThreshold();
+  return c.json({
+    id: device.id,
+    thresholdWatts: confirmedMilliwatts / 1000,
+    thresholdMilliwatts: confirmedMilliwatts,
   });
 });

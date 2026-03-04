@@ -22,6 +22,7 @@ import { toApiError } from "./errors";
 import { deviceRoutes } from "./routes/devices";
 import { discoveryRoutes } from "./routes/discovery";
 import { setupRoutes } from "./routes/setup";
+import { timerRoutes } from "./routes/timers";
 import { initStaticFiles, isDevMode, staticFileMiddleware } from "./static";
 
 /**
@@ -294,7 +295,7 @@ export function createApp(config: ServerConfig = {}): Hono {
   app.get("/api", (c) => {
     return c.json({
       name: "Open Wemo API",
-      version: "0.2.0",
+      version: "0.3.0",
       endpoints: [
         "GET /api/health",
         "GET /api/info",
@@ -308,12 +309,18 @@ export function createApp(config: ServerConfig = {}): Hono {
         "POST /api/devices/:id/off",
         "POST /api/devices/:id/toggle",
         "GET /api/devices/:id/insight",
+        "GET /api/devices/:id/timers",
+        "POST /api/devices/:id/timers",
+        "PATCH /api/devices/:id/timers/:ruleId",
+        "DELETE /api/devices/:id/timers/:ruleId",
+        "PATCH /api/devices/:id/timers/:ruleId/toggle",
       ],
     });
   });
 
   // Mount API routes
   app.route("/api/devices", deviceRoutes);
+  app.route("/api/devices/:id/timers", timerRoutes);
   app.route("/api/discover", discoveryRoutes);
   app.route("/api/setup", setupRoutes);
 

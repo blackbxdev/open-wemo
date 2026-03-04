@@ -23,6 +23,11 @@ export const ErrorCodes = {
   // Discovery errors
   DISCOVERY_TIMEOUT: "DISCOVERY_TIMEOUT",
   DISCOVERY_FAILED: "DISCOVERY_FAILED",
+
+  // Rules errors
+  RULES_NOT_SUPPORTED: "RULES_NOT_SUPPORTED",
+  RULES_FETCH_FAILED: "RULES_FETCH_FAILED",
+  RULES_STORE_FAILED: "RULES_STORE_FAILED",
 } as const;
 
 export type ErrorCode = (typeof ErrorCodes)[keyof typeof ErrorCodes];
@@ -132,6 +137,45 @@ export class ValidationError extends ApiError {
       ...super.toJSON(),
       ...(this.fields && { fields: this.fields }),
     };
+  }
+}
+
+/**
+ * Error thrown when rules/timer features are requested on an unsupported device.
+ */
+export class RulesNotSupportedError extends ApiError {
+  constructor(deviceId: string) {
+    super(
+      "Device does not support timer/schedule rules",
+      400,
+      ErrorCodes.RULES_NOT_SUPPORTED,
+      deviceId
+    );
+    this.name = "RulesNotSupportedError";
+  }
+}
+
+/**
+ * Error thrown when fetching rules from device fails.
+ */
+export class RulesFetchError extends ApiError {
+  constructor(deviceId: string, reason?: string) {
+    const message = reason
+      ? `Failed to fetch rules: ${reason}`
+      : "Failed to fetch rules from device";
+    super(message, 502, ErrorCodes.RULES_FETCH_FAILED, deviceId);
+    this.name = "RulesFetchError";
+  }
+}
+
+/**
+ * Error thrown when storing rules to device fails.
+ */
+export class RulesStoreError extends ApiError {
+  constructor(deviceId: string, reason?: string) {
+    const message = reason ? `Failed to store rules: ${reason}` : "Failed to store rules to device";
+    super(message, 502, ErrorCodes.RULES_STORE_FAILED, deviceId);
+    this.name = "RulesStoreError";
   }
 }
 

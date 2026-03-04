@@ -10,6 +10,8 @@
  * - Respond to SOAP/HTTP requests for WiFi configuration
  */
 
+import { log } from "./logger.js";
+
 // ============================================
 // Constants
 // ============================================
@@ -89,7 +91,7 @@ export async function canReachWemoAP() {
     // response.ok will be false for opaque responses, but response.type tells us it worked
     return response.type === "opaque" || response.ok;
   } catch (error) {
-    console.log("[SetupMode] Cannot reach Wemo AP:", error.message);
+    log("[SetupMode] Cannot reach Wemo AP:", error.message);
     return false;
   }
 }
@@ -112,7 +114,7 @@ export async function canReachBridge() {
     clearTimeout(timeoutId);
     return response.ok;
   } catch (error) {
-    console.log("[SetupMode] Cannot reach bridge:", error.message);
+    log("[SetupMode] Cannot reach bridge:", error.message);
     return false;
   }
 }
@@ -128,24 +130,24 @@ export async function canReachBridge() {
  * @returns {Promise<NetworkMode>} The detected network mode
  */
 export async function detectNetworkMode() {
-  console.log("[SetupMode] Detecting network mode...");
+  log("[SetupMode] Detecting network mode...");
 
   // Check bridge first - if reachable, we're in normal mode
   const bridgeReachable = await canReachBridge();
   if (bridgeReachable) {
-    console.log("[SetupMode] Bridge reachable - NORMAL mode");
+    log("[SetupMode] Bridge reachable - NORMAL mode");
     return NetworkMode.NORMAL;
   }
 
   // Bridge not reachable - check if we're on Wemo AP
   const wemoAPReachable = await canReachWemoAP();
   if (wemoAPReachable) {
-    console.log("[SetupMode] Wemo AP reachable - SETUP_MODE");
+    log("[SetupMode] Wemo AP reachable - SETUP_MODE");
     return NetworkMode.SETUP_MODE;
   }
 
   // Neither reachable - offline
-  console.log("[SetupMode] Nothing reachable - OFFLINE mode");
+  log("[SetupMode] Nothing reachable - OFFLINE mode");
   return NetworkMode.OFFLINE;
 }
 
@@ -946,7 +948,7 @@ export async function* runAllTests() {
   const ENABLE_CORS_TESTS = false;
 
   if (!ENABLE_CORS_TESTS) {
-    console.log("[SetupMode] CORS connectivity tests are disabled");
+    log("[SetupMode] CORS connectivity tests are disabled");
     yield {
       name: "Tests Disabled",
       success: true,
@@ -957,7 +959,7 @@ export async function* runAllTests() {
     return;
   }
 
-  console.log("[SetupMode] Running CORS connectivity tests...");
+  log("[SetupMode] Running CORS connectivity tests...");
 
   // Run tests in sequence for clearer results
   yield await testNoCorsGet();
@@ -972,7 +974,7 @@ export async function* runAllTests() {
   yield await testWebSocketProbe(); // Experiment: WebSocket has different CORS rules
   yield await testWiFiSetupService();
 
-  console.log("[SetupMode] All tests complete");
+  log("[SetupMode] All tests complete");
 }
 
 /**
@@ -1335,7 +1337,7 @@ export async function encryptWifiPassword(password, mac, serial, method, addLeng
     encryptedPassword += hexEncrypted + hexOriginal;
   }
 
-  console.log("[Encryption] Password encrypted successfully", {
+  log("[Encryption] Password encrypted successfully", {
     method,
     addLengths,
     originalLength: password.length,
@@ -1472,7 +1474,7 @@ export function sendSetupCommand(payload, url = WIFI_SETUP_ACTION_URL) {
 
   const success = navigator.sendBeacon(url, blob);
 
-  console.log(`[Setup] sendBeacon ${success ? "queued" : "FAILED"}`, {
+  log(`[Setup] sendBeacon ${success ? "queued" : "FAILED"}`, {
     url,
     payloadLength: payload.length,
   });
@@ -1533,7 +1535,7 @@ export async function sendWifiSetupCommand({
       encAddLengths = encMethod !== EncryptionMethod.METHOD_2;
     }
 
-    console.log("[Setup] Encrypting WiFi password...", {
+    log("[Setup] Encrypting WiFi password...", {
       method: encMethod,
       addLengths: encAddLengths,
     });
@@ -1556,7 +1558,7 @@ export async function sendWifiSetupCommand({
       channel,
     });
 
-    console.log("[Setup] Sending ConnectHomeNetwork command...");
+    log("[Setup] Sending ConnectHomeNetwork command...");
 
     // Send twice for reliability (per pywemo recommendation)
     const success1 = sendSetupCommand(payload);
@@ -1564,7 +1566,7 @@ export async function sendWifiSetupCommand({
     const success2 = sendSetupCommand(payload);
 
     if (success1 || success2) {
-      console.log("[Setup] ConnectHomeNetwork command sent successfully");
+      log("[Setup] ConnectHomeNetwork command sent successfully");
       return {
         success: true,
         message: "Setup command sent. The device will attempt to connect to your WiFi network.",

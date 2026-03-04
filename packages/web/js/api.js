@@ -192,6 +192,39 @@ export const api = {
   },
 
   /**
+   * Get standby threshold for an Insight device.
+   * @param {string} id - Device ID (must be Insight device)
+   * @returns {Promise<{id: string, thresholdWatts: number, thresholdMilliwatts: number}>}
+   */
+  async getThreshold(id) {
+    return request(`/devices/${encodeURIComponent(id)}/threshold`);
+  },
+
+  /**
+   * Set standby threshold for an Insight device.
+   * @param {string} id - Device ID (must be Insight device)
+   * @param {number} watts - Threshold in watts (0-50)
+   * @returns {Promise<{id: string, thresholdWatts: number, thresholdMilliwatts: number}>}
+   */
+  async setThreshold(id, watts) {
+    return request(`/devices/${encodeURIComponent(id)}/threshold`, {
+      method: "PUT",
+      body: JSON.stringify({ watts }),
+    });
+  },
+
+  /**
+   * Reset standby threshold to factory default for an Insight device.
+   * @param {string} id - Device ID (must be Insight device)
+   * @returns {Promise<{id: string, thresholdWatts: number, thresholdMilliwatts: number}>}
+   */
+  async resetThreshold(id) {
+    return request(`/devices/${encodeURIComponent(id)}/threshold/reset`, {
+      method: "POST",
+    });
+  },
+
+  /**
    * Discover devices on the network.
    * @param {number} timeout - Discovery timeout in seconds (default: 5)
    * @returns {Promise<{devices: Array, duration: number}>}
@@ -210,6 +243,68 @@ export const api = {
    */
   async getDeviceAtAddress(host, port = 49153) {
     return request(`/discover/${encodeURIComponent(host)}?port=${port}`);
+  },
+
+  /**
+   * Get all timer rules for a device.
+   * @param {string} id - Device ID
+   * @returns {Promise<{timers: Array, dbVersion: number}>}
+   */
+  async getTimers(id) {
+    return request(`/devices/${encodeURIComponent(id)}/timers`);
+  },
+
+  /**
+   * Create a new timer rule.
+   * @param {string} id - Device ID
+   * @param {Object} timer - Timer data (name, startTime, startAction, dayId, etc.)
+   * @returns {Promise<{timer: Object}>}
+   */
+  async createTimer(id, timer) {
+    return request(`/devices/${encodeURIComponent(id)}/timers`, {
+      method: "POST",
+      body: JSON.stringify(timer),
+    });
+  },
+
+  /**
+   * Update a timer rule.
+   * @param {string} id - Device ID
+   * @param {number} ruleId - Rule ID
+   * @param {Object} updates - Fields to update
+   * @returns {Promise<{timer: Object}>}
+   */
+  async updateTimer(id, ruleId, updates) {
+    return request(`/devices/${encodeURIComponent(id)}/timers/${ruleId}`, {
+      method: "PATCH",
+      body: JSON.stringify(updates),
+    });
+  },
+
+  /**
+   * Delete a timer rule.
+   * @param {string} id - Device ID
+   * @param {number} ruleId - Rule ID
+   * @returns {Promise<{deleted: boolean, ruleId: number}>}
+   */
+  async deleteTimer(id, ruleId) {
+    return request(`/devices/${encodeURIComponent(id)}/timers/${ruleId}`, {
+      method: "DELETE",
+    });
+  },
+
+  /**
+   * Toggle a timer rule enabled/disabled.
+   * @param {string} id - Device ID
+   * @param {number} ruleId - Rule ID
+   * @param {boolean} enabled - Desired enabled state
+   * @returns {Promise<{timer: Object}>}
+   */
+  async toggleTimer(id, ruleId, enabled) {
+    return request(`/devices/${encodeURIComponent(id)}/timers/${ruleId}/toggle`, {
+      method: "PATCH",
+      body: JSON.stringify({ enabled }),
+    });
   },
 };
 

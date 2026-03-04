@@ -275,10 +275,16 @@ export function staticFileMiddleware() {
     if (isDev) {
       const file = await getStaticFileFresh(webDir, path);
       if (file) {
-        return new Response(file.content, {
+        let content: Uint8Array | string = file.content;
+        if (file.mimeType.startsWith("text/html")) {
+          const html = new TextDecoder().decode(file.content);
+          content = new TextEncoder().encode(
+            html.replace("<head>", "<head><script>window.__DEV__=true</script>")
+          );
+        }
+        return new Response(content, {
           headers: {
             "Content-Type": file.mimeType,
-            // No caching in development
             "Cache-Control": "no-cache, no-store, must-revalidate",
             Pragma: "no-cache",
             Expires: "0",
