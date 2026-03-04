@@ -6,7 +6,7 @@
  */
 
 import { WemoDeviceClient } from "./device";
-import { extractTextValue, soapRequest } from "./soap";
+import { extractNumericValue, extractTextValue, soapRequest } from "./soap";
 import type { InsightParams, PowerData, WemoDevice } from "./types";
 
 /**
@@ -154,21 +154,61 @@ export class InsightDeviceClient extends WemoDeviceClient {
     return parseInsightParams(paramsString);
   }
 
-  /**
-   * Gets human-readable power data from the device.
-   *
-   * @returns PowerData with values in human-friendly units (watts, kWh, formatted durations)
-   */
   async getPowerData(): Promise<PowerData> {
     const params = await this.getInsightParams();
     return convertToPowerData(params);
   }
 
-  /**
-   * Checks if this device supports Insight functionality.
-   *
-   * @returns true if device is an Insight device
-   */
+  async getPowerThreshold(): Promise<number> {
+    interface ThresholdResponse {
+      PowerThreshold?: unknown;
+    }
+
+    const response = await soapRequest<ThresholdResponse>(
+      this.host,
+      this.port,
+      INSIGHT_CONTROL_URL,
+      INSIGHT_SERVICE,
+      "GetPowerThreshold"
+    );
+
+    if (!response.success) {
+      throw new Error(`Failed to get PowerThreshold: ${response.error}`);
+    }
+
+    return extractNumericValue(response.data?.PowerThreshold);
+  }
+
+  async setPowerThreshold(milliwatts: number): Promise<void> {
+    const response = await soapRequest(
+      this.host,
+      this.port,
+      INSIGHT_CONTROL_URL,
+      INSIGHT_SERVICE,
+      "SetPowerThreshold",
+      `<PowerThreshold>${Math.round(milliwatts)}</PowerThreshold>`
+    );
+
+    if (!response.success) {
+      throw new Error(`Failed to set PowerThreshold: ${response.error}`);
+    }
+  }
+
+  async resetPowerThreshold(): Promise<void> {
+    const response = await soapRequest(
+      this.host,
+      this.port,
+      INSIGHT_CONTROL_URL,
+      INSIGHT_SERVICE,
+      "ResetPowerThreshold",
+      "<PowerThreshold>8000</PowerThreshold>"
+    );
+
+    if (!response.success) {
+      throw new Error(`Failed to reset PowerThreshold: ${response.error}`);
+    }
+  }
+
   get isInsightDevice(): boolean {
     return this.info.deviceType === "Insight";
   }
