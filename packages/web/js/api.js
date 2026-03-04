@@ -192,6 +192,39 @@ export const api = {
   },
 
   /**
+   * Get standby threshold for an Insight device.
+   * @param {string} id - Device ID (must be Insight device)
+   * @returns {Promise<{id: string, thresholdWatts: number, thresholdMilliwatts: number}>}
+   */
+  async getThreshold(id) {
+    return request(`/devices/${encodeURIComponent(id)}/threshold`);
+  },
+
+  /**
+   * Set standby threshold for an Insight device.
+   * @param {string} id - Device ID (must be Insight device)
+   * @param {number} watts - Threshold in watts (0-50)
+   * @returns {Promise<{id: string, thresholdWatts: number, thresholdMilliwatts: number}>}
+   */
+  async setThreshold(id, watts) {
+    return request(`/devices/${encodeURIComponent(id)}/threshold`, {
+      method: "PUT",
+      body: JSON.stringify({ watts }),
+    });
+  },
+
+  /**
+   * Reset standby threshold to factory default for an Insight device.
+   * @param {string} id - Device ID (must be Insight device)
+   * @returns {Promise<{id: string, thresholdWatts: number, thresholdMilliwatts: number}>}
+   */
+  async resetThreshold(id) {
+    return request(`/devices/${encodeURIComponent(id)}/threshold/reset`, {
+      method: "POST",
+    });
+  },
+
+  /**
    * Discover devices on the network.
    * @param {number} timeout - Discovery timeout in seconds (default: 5)
    * @returns {Promise<{devices: Array, duration: number}>}

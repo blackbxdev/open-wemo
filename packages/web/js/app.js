@@ -596,6 +596,23 @@ function renderDeviceCard(device) {
     `
       : "";
 
+  const thresholdHtml =
+    isInsight && !isOffline
+      ? `
+      <div class="threshold-control" data-threshold-control="${escapeHtml(device.id)}">
+        <div class="threshold-label">Standby Threshold</div>
+        <div class="threshold-input-group">
+          <input type="number" min="0" max="50" step="0.5"
+                 data-threshold-input="${escapeHtml(device.id)}"
+                 placeholder="--" disabled>
+          <span class="threshold-unit">W</span>
+          <button class="threshold-reset" data-threshold-reset="${escapeHtml(device.id)}"
+                  title="Reset to default" disabled>Reset</button>
+        </div>
+      </div>
+    `
+      : "";
+
   return `
     <div class="card device-card ${isInsight ? "device-card-insight" : ""}" data-device-id="${escapeHtml(device.id)}" data-device-type="${escapeHtml(device.deviceType)}">
       <div class="device-card-main">
@@ -618,6 +635,7 @@ function renderDeviceCard(device) {
         </label>
       </div>
       ${powerStatsHtml}
+      ${thresholdHtml}
     </div>
   `;
 }
@@ -821,6 +839,15 @@ async function fetchDevicePowerStats(device) {
     if (todayEl) {
       todayEl.textContent = formatEnergy(power.todayKwh);
     }
+
+    const thresholdInput = document.querySelector(`[data-threshold-input="${device.id}"]`);
+    if (thresholdInput && result.raw?.standbyThreshold != null) {
+      thresholdInput.value = (result.raw.standbyThreshold / 1000).toFixed(1);
+      thresholdInput.disabled = false;
+      thresholdInput._lastGoodValue = thresholdInput.value;
+      const resetBtn = document.querySelector(`[data-threshold-reset="${device.id}"]`);
+      if (resetBtn) resetBtn.disabled = false;
+    }
   } catch (error) {
     console.warn(`[App] Failed to fetch power stats for ${device.id}:`, error);
     // Leave as "--" on error
@@ -876,6 +903,14 @@ function attachDeviceListeners() {
       timerBtn.disabled = true;
     }
     timerBtn.addEventListener("click", handleTimerClick);
+  }
+
+  // Threshold change handlers (Insight devices)
+  for (const input of $app.querySelectorAll("[data-threshold-input]")) {
+    input.addEventListener("change", handleThresholdChange);
+  }
+  for (const btn of $app.querySelectorAll("[data-threshold-reset]")) {
+    btn.addEventListener("click", handleThresholdReset);
   }
 
   // Discover button
@@ -954,9 +989,47 @@ async function handleToggle(event) {
   }
 }
 
-/**
- * Handles timer button click.
- */
+async function handleThresholdChange(event) {
+  const input = event.target;
+  const card = input.closest("[data-device-id]");
+  const deviceId = card.dataset.deviceId;
+  const watts = Number.parseFloat(input.value);
+
+  if (Number.isNaN(watts) || watts < 0 || watts > 50) {
+    input.value = input._lastGoodValue || "";
+    showToast("Threshold must be between 0 and 50 watts", "error");
+    return;
+  }
+
+  try {
+    const result = await api.setThreshold(deviceId, watts);
+    input.value = result.thresholdWatts.toFixed(1);
+    input._lastGoodValue = input.value;
+  } catch (error) {
+    input.value = input._lastGoodValue || "";
+    showToast(error.message || "Failed to update threshold", "error");
+  }
+}
+
+async function handleThresholdReset(event) {
+  const btn = event.currentTarget;
+  const deviceId = btn.dataset.thresholdReset;
+  const input = document.querySelector(`[data-threshold-input="${deviceId}"]`);
+
+  btn.disabled = true;
+  try {
+    const result = await api.resetThreshold(deviceId);
+    if (input) {
+      input.value = result.thresholdWatts.toFixed(1);
+      input._lastGoodValue = input.value;
+    }
+  } catch (error) {
+    showToast(error.message || "Failed to reset threshold", "error");
+  } finally {
+    btn.disabled = false;
+  }
+}
+
 function handleTimerClick(event) {
   const btn = event.currentTarget;
   const card = btn.closest("[data-device-id]");
