@@ -77,14 +77,18 @@ bridge/
 │   │   ├── errors.ts        # Error handling
 │   │   └── routes/
 │   │       ├── devices.ts   # Device CRUD + control
-│   │       └── discovery.ts # Network scanning
+│   │       ├── discovery.ts # Network scanning
+│   │       └── timers.ts    # Timer CRUD API endpoints
 │   │
 │   ├── wemo/                # WeMo protocol implementation
 │   │   ├── types.ts         # Type definitions
 │   │   ├── soap.ts          # SOAP client
 │   │   ├── discovery.ts     # SSDP device discovery
 │   │   ├── device.ts        # Basic device operations
-│   │   └── insight.ts       # Insight power monitoring
+│   │   ├── insight.ts       # Insight power monitoring
+│   │   ├── rules.ts         # Timer rules management (SOAP fetch/store, SQLite parsing)
+│   │   ├── scheduler.ts     # Bridge-side scheduler (30s ticks aligned to :00/:30)
+│   │   └── timesync.ts      # Device time synchronization
 │   │
 │   ├── tray/                # System tray UI
 │   │   ├── index.ts         # Tray setup
@@ -111,7 +115,10 @@ web/
 ├── css/
 │   └── style.css       # All styles
 ├── js/
-│   └── app.js          # All JavaScript
+│   ├── app.js          # Main application logic
+│   ├── api.js          # API client
+│   ├── timer-panel.js  # Timer management UI
+│   └── logger.js       # Dev-only console logging wrapper
 └── icons/              # App icons
 ```
 
@@ -167,6 +174,43 @@ web/
 3. When Bridge reconnects:
    - Refresh device states
    - Clear offline banner
+```
+
+### Timer Scheduler
+
+```
+1. Bridge runs a scheduler that ticks every 30 seconds, aligned to :00 and :30 marks
+2. On startup:
+   - Uses setTimeout to align initial tick to next :00/:30 boundary
+   - Then starts setInterval(30000) for subsequent ticks
+3. On each tick:
+   - Evaluates all enabled timer rules for all devices
+   - Fires device on/off actions when a rule's time matches
+4. Rules storage:
+   - Rules are stored in the WeMo device's internal SQLite database
+   - Fetched via SOAP as a ZIP file containing temppluginRules.db
+   - Parsed in-memory using bun:sqlite
+   - Modified and uploaded back via SOAP (base64-encoded ZIP)
+5. Time synchronization:
+   - Device clocks are synced before timer writes via timesync:1 service
+   - Ensures rules fire at correct local time
+```
+
+### Development Logging
+
+```
+1. In dev mode (bun --watch):
+   - Bridge injects window.__DEV__=true into HTML <head>
+   - static.ts middleware detects non-compiled binary mode
+2. logger.js exports log() function:
+   - When __DEV__ is set: log() = console.log
+   - In production: log() = noop (silent)
+3. Error logging:
+   - console.error and console.warn always work in both modes
+4. Production binaries:
+   - Compiled with bun build --compile
+   - Do not inject __DEV__ flag
+   - log() becomes silent, reducing noise in production
 ```
 
 ## Security Considerations

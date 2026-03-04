@@ -132,14 +132,6 @@ describe("evaluateRules", () => {
     expect(events).toEqual([]);
   });
 
-  test("maps TimerAction.Toggle (2) to action 1 (On)", () => {
-    const rule = makeRule({ startAction: TimerAction.Toggle });
-    const events = evaluateRules([rule], 25200, 25190, DAYS.MON);
-
-    expect(events).toHaveLength(1);
-    expect(events[0]?.action).toBe(1);
-  });
-
   test("maps TimerAction.On (1) to action 1", () => {
     const rule = makeRule({ startAction: TimerAction.On });
     const events = evaluateRules([rule], 25200, 25190, DAYS.MON);

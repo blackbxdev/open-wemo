@@ -157,18 +157,34 @@ export async function tick(): Promise<void> {
 }
 
 export function startScheduler(): { stop: () => void } {
-  tick().catch((error) => {
-    console.error("[Scheduler] Tick error:", error);
-  });
+  let intervalId: ReturnType<typeof setInterval> | null = null;
 
-  const intervalId = setInterval(() => {
+  const runTick = () => {
     tick().catch((error) => {
       console.error("[Scheduler] Tick error:", error);
     });
-  }, 30_000);
+  };
+
+  // Align ticks to :00 and :30 second marks
+  const now = new Date();
+  const seconds = now.getSeconds();
+  const ms = now.getMilliseconds();
+  const secondsUntilNext = seconds < 30 ? 30 - seconds : 60 - seconds;
+  const delay = secondsUntilNext * 1000 - ms;
+
+  // Run an initial tick immediately, then start the aligned interval
+  runTick();
+
+  const alignmentTimeout = setTimeout(() => {
+    runTick();
+    intervalId = setInterval(runTick, 30_000);
+  }, delay);
 
   return {
-    stop: () => clearInterval(intervalId),
+    stop: () => {
+      clearTimeout(alignmentTimeout);
+      if (intervalId !== null) clearInterval(intervalId);
+    },
   };
 }
 

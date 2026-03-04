@@ -79,6 +79,8 @@ Open Wemo consists of two parts that work together:
 | **Works Offline** | App shows last-known states when bridge is unreachable |
 | **Dark & Light Themes** | Choose your preferred appearance, or follow system |
 | **Auto-Refresh** | Device states update automatically (configurable interval) |
+| **Timer Schedules** | Schedule devices to turn on or off at specific times, daily or per day of week |
+| **Standby Threshold** | Configure the power level at which Insight devices are considered in standby (via device config panel) |
 | **QR Code Setup** | Scan a code to instantly set up the app on any phone |
 | **Cross-Platform** | Bridge runs on Windows, macOS, and Linux |
 | **No Cloud Required** | Everything stays on your local network — private by design |
@@ -230,6 +232,27 @@ When you open the app, you'll see your devices as cards:
 - 🟡 **Yellow** — Standby (Insight only, using minimal power)
 - 🔴 **Red** — Device offline (unreachable on network)
 
+### Timer Schedules
+
+Schedule your devices to turn on or off automatically at specific times:
+
+- **Tap the timer icon** on any device card to manage schedules
+- **Create timers** by setting a time, action (on/off), and day of week
+- **Edit or delete** existing timers with a tap
+- **Daily or specific days** — run every day or only on selected days (Monday, Tuesday, etc.)
+
+**How it works:** Timers run on the bridge, not the device firmware. This means they're reliable and consistent — your devices will turn on/off at the scheduled time as long as the bridge is running.
+
+### Device Configuration
+
+For Insight devices, you can adjust power monitoring settings:
+
+- **Tap the gear icon** on an Insight device card
+- **Adjust standby threshold** — the wattage below which a device is considered "Standby" instead of "Off"
+- **Range:** 0-50 watts (default varies by device)
+
+This is useful if your device draws a small amount of power when "off" (like a TV in standby mode) and you want to fine-tune when it shows as "Standby" vs. "Off".
+
 ### Header Actions
 
 | Button | Action |
@@ -330,6 +353,7 @@ chmod +x ~/.cache/node-systray/*/tray_linux_release
 
 - **Give it time**: Insight devices average power over time; readings stabilize after a few minutes
 - **Standby mode**: Very low power (< 1 watt) shows as "Standby" state
+- **Adjust standby threshold**: Tap the gear icon on the device card to customize the wattage at which the device is considered "Standby"
 - **Device firmware**: Older WeMo firmware may report slightly different formats
 
 ---
@@ -472,6 +496,12 @@ The bridge exposes a REST API that the PWA uses (and you can use for automation)
 | `/api/devices/:id/off` | POST | Turn device off |
 | `/api/devices/:id/toggle` | POST | Toggle device state |
 | `/api/devices/:id/insight` | GET | Get power data (Insight only) |
+| `/api/devices/:id/timers` | GET | List timer schedules for a device |
+| `/api/devices/:id/timers` | POST | Create a new timer schedule |
+| `/api/devices/:id/timers/:ruleId` | PATCH | Update a timer schedule |
+| `/api/devices/:id/timers/:ruleId` | DELETE | Delete a timer schedule |
+| `/api/devices/:id/threshold` | GET | Get standby threshold (Insight only) |
+| `/api/devices/:id/threshold` | PUT | Set standby threshold (Insight only) |
 | `/api/discover` | GET | Scan network for devices |
 | `/api/health` | GET | Check if bridge is running |
 
@@ -530,3 +560,9 @@ A: New WeMo devices create their own WiFi network ("WeMo.Setup.XXX") that your c
 
 **Q: I already have WeMo devices on my network. Do I need to do anything special?**  
 A: Nope! Just install the bridge and it will automatically discover your existing devices. The setup wizard is only for brand new devices that haven't been connected to WiFi yet.
+
+**Q: Can I schedule my devices to turn on/off automatically?**  
+A: Yes! Tap the timer icon on any device card to create schedules. Set a time, choose on or off, and select which days of the week. Timers run on the bridge, so they're reliable and consistent as long as the bridge is running.
+
+**Q: What is the standby threshold?**  
+A: For Insight devices, the standby threshold is the power level (in watts) below which the device shows as "Standby" instead of "Off". This is useful for devices that draw a small amount of power when turned off (like TVs or chargers). You can adjust it by tapping the gear icon on an Insight device card. The range is 0-50 watts.

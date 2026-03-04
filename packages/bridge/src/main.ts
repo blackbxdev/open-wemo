@@ -383,7 +383,7 @@ Options:
 
   // --version
   if (args.includes("--version") || args.includes("-v")) {
-    console.log("Open Wemo Bridge v1.0.0");
+    console.log("Open Wemo Bridge v0.3.0");
     return false;
   }
 

@@ -202,8 +202,23 @@ body {
   border-color: var(--color-primary-dim);
 }
 
+.btn-danger {
+  color: #fff;
+  background-color: var(--color-error);
+  border-color: var(--color-error);
+}
+
+.btn-danger:hover {
+  background-color: #dc2626;
+  border-color: #dc2626;
+}
+
 .btn-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   width: var(--touch-target);
+  height: var(--touch-target);
   padding: var(--spacing-sm);
   border: none;
   background: transparent;
@@ -513,8 +528,45 @@ body {
 /* ============================================
    Threshold Control (Insight devices)
    ============================================ */
+.config-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--touch-target);
+  min-width: var(--touch-target);
+  min-height: var(--touch-target);
+  padding: var(--spacing-sm);
+  color: var(--color-text-muted);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: color var(--transition-fast), background-color var(--transition-fast);
+}
+
+.config-btn:hover {
+  color: var(--color-primary);
+  background-color: var(--color-bg-hover);
+}
+
+.config-btn[aria-expanded="true"] {
+  color: var(--color-primary);
+}
+
+.config-btn:disabled {
+  color: var(--color-text-dim);
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.device-config-panel {
+  padding: var(--spacing-md);
+  border-top: 1px solid var(--color-border);
+  animation: slideUp var(--transition-normal);
+}
+
 .threshold-control {
-  padding: 0 var(--spacing-md) var(--spacing-md);
+  padding: 0;
 }
 
 .threshold-label {
@@ -2457,6 +2509,8 @@ body {
   display: flex;
   flex-direction: column;
   gap: var(--spacing-xs);
+  flex: 1;
+  min-width: 0;
 }
 
 .timer-item-time {
@@ -2475,6 +2529,7 @@ body {
   align-items: center;
   gap: var(--spacing-xs);
   flex-wrap: wrap;
+  flex-shrink: 0;
 }
 
 .timer-item-actions .btn,
@@ -2582,6 +2637,7 @@ body {
   font-family: inherit;
   font-size: var(--font-size-base);
   color: var(--color-text);
+  color-scheme: dark;
   background-color: var(--color-bg-elevated);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
@@ -2727,20 +2783,6 @@ body {
   color: var(--color-text-muted);
 }
 
-.timer-delete-confirm {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-sm);
-  padding: var(--spacing-xs) 0;
-  font-size: var(--font-size-sm);
-  color: var(--color-text-muted);
-}
-
-.timer-delete-confirm .btn,
-.timer-delete-confirm .btn-icon {
-  min-height: var(--touch-target);
-}
-
 .timer-add-btn {
   width: 100%;
   min-height: var(--touch-target);
@@ -2761,6 +2803,7 @@ body {
     flex-direction: row;
     align-items: center;
     justify-content: space-between;
+    flex-wrap: wrap;
   }
 
   .timer-item-actions {
@@ -2787,6 +2830,7 @@ body {
 
 [data-theme="light"] .time-input {
   background-color: var(--color-bg-elevated);
+  color-scheme: light;
 }
 
 [data-theme="light"] .timer-add-btn:hover {

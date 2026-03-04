@@ -38,7 +38,7 @@ const DAY_BITS = [DAYS.SUN, DAYS.MON, DAYS.TUE, DAYS.WED, DAYS.THU, DAYS.FRI, DA
 
 function toTimerAction(value: number): TimerAction {
   if (value <= 0) return TimerAction.Off;
-  if (value >= 2) return TimerAction.Toggle;
+  if (value >= 2) return TimerAction.On;
   return TimerAction.On;
 }
 

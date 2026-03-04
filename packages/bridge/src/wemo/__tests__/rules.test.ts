@@ -243,7 +243,7 @@ describe("addRuleToDb", () => {
         dayId: DAYS.WEEKDAYS,
         startTime: 28800,
         endTime: 75600,
-        startAction: TimerAction.Toggle,
+        startAction: TimerAction.On,
         endAction: TimerAction.Off,
       }),
       "uuid:device-1"
@@ -270,7 +270,7 @@ describe("addRuleToDb", () => {
     expect(Number(row?.dayId)).toBe(DAYS.WEEKDAYS);
     expect(Number(row?.startTime)).toBe(28800);
     expect(Number(row?.endTime)).toBe(75600);
-    expect(Number(row?.startAction)).toBe(TimerAction.Toggle);
+    expect(Number(row?.startAction)).toBe(TimerAction.On);
     expect(Number(row?.endAction)).toBe(TimerAction.Off);
     db.close();
   });
@@ -308,7 +308,7 @@ describe("updateRuleInDb", () => {
     const updated = updateRuleInDb(base, 1, {
       startTime: 30600,
       endTime: 79200,
-      startAction: TimerAction.Toggle,
+      startAction: TimerAction.Off,
       endAction: TimerAction.On,
       dayId: DAYS.WEEKENDS,
     });
@@ -316,7 +316,7 @@ describe("updateRuleInDb", () => {
 
     expect(parsed[0]?.startTime).toBe(30600);
     expect(parsed[0]?.endTime).toBe(79200);
-    expect(parsed[0]?.startAction).toBe(TimerAction.Toggle);
+    expect(parsed[0]?.startAction).toBe(TimerAction.Off);
     expect(parsed[0]?.endAction).toBe(TimerAction.On);
     expect(parsed[0]?.dayId).toBe(DAYS.WEEKENDS);
   });

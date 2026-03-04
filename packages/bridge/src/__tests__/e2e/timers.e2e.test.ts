@@ -555,7 +555,7 @@ describe("timer panel e2e", () => {
     await createTimer(id, {
       name: "Three",
       startTime: 32400,
-      startAction: TimerAction.Toggle,
+      startAction: TimerAction.On,
       dayId: DAYS.WEEKENDS,
     });
 

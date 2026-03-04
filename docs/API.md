@@ -358,6 +358,322 @@ Gets power monitoring data for Insight devices.
 
 ---
 
+### Timer Schedules
+
+#### List Timers
+
+```http
+GET /api/devices/:id/timers
+```
+
+Gets all timer rules for a device.
+
+**Response:**
+```json
+{
+  "timers": [
+    {
+      "ruleId": 501,
+      "name": "Morning On",
+      "startTime": 25200,
+      "endTime": 28800,
+      "startAction": 1,
+      "endAction": 0,
+      "dayId": -1,
+      "enabled": true
+    }
+  ],
+  "dbVersion": 42
+}
+```
+
+**Timer Fields:**
+| Field | Type | Description |
+|-------|------|-------------|
+| ruleId | number | Unique rule identifier |
+| name | string | Timer rule name |
+| startTime | number | Start time in seconds from midnight (0-86400) |
+| endTime | number | End time in seconds from midnight (optional) |
+| startAction | number | Action at start: 0=Off, 1=On |
+| endAction | number | Action at end: 0=Off, 1=On, -1=None (optional) |
+| dayId | number | Day: -1=Every day, 0=Sunday, 1=Monday, ..., 6=Saturday |
+| enabled | boolean | Whether rule is active |
+
+**Time Format:**
+Times are in seconds from midnight (0-86400):
+- 00:00 = 0
+- 07:00 = 25200
+- 14:30 = 52200
+- 23:59 = 86340
+
+**Errors:**
+- `404` - Device not found
+- `503` - Device offline
+
+---
+
+#### Create Timer
+
+```http
+POST /api/devices/:id/timers
+```
+
+Creates a new timer rule.
+
+**Request Body:**
+```json
+{
+  "name": "Evening Off",
+  "startTime": 79200,
+  "startAction": 0,
+  "dayId": -1,
+  "endTime": 25200,
+  "endAction": 1
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| name | string | Yes | Timer rule name |
+| startTime | number | Yes | Start time (0-86400 seconds from midnight) |
+| startAction | number | Yes | Action at start: 0=Off, 1=On |
+| dayId | number | Yes | Day: -1=Every day, 0-6=Day of week |
+| endTime | number | No | End time (0-86400 seconds from midnight) |
+| endAction | number | No | Action at end: 0=Off, 1=On, -1=None |
+
+**Response:**
+```json
+{
+  "timer": {
+    "ruleId": 502,
+    "name": "Evening Off",
+    "startTime": 79200,
+    "endTime": 25200,
+    "startAction": 0,
+    "endAction": 1,
+    "dayId": -1,
+    "enabled": true
+  }
+}
+```
+
+**Errors:**
+- `400` - Missing or invalid fields
+- `404` - Device not found
+- `503` - Device offline
+
+---
+
+#### Update Timer
+
+```http
+PATCH /api/devices/:id/timers/:ruleId
+```
+
+Updates an existing timer rule.
+
+**Request Body:**
+```json
+{
+  "name": "Updated Name",
+  "startTime": 28800,
+  "enabled": false
+}
+```
+
+All fields are optional. Only provided fields are updated.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| name | string | Timer rule name |
+| startTime | number | Start time (0-86400 seconds from midnight) |
+| endTime | number | End time (0-86400 seconds from midnight) |
+| startAction | number | Action at start: 0=Off, 1=On |
+| endAction | number | Action at end: 0=Off, 1=On, -1=None |
+| dayId | number | Day: -1=Every day, 0-6=Day of week |
+| enabled | boolean | Whether rule is active |
+
+**Response:**
+```json
+{
+  "timer": {
+    "ruleId": 502,
+    "name": "Updated Name",
+    "startTime": 28800,
+    "endTime": 25200,
+    "startAction": 0,
+    "endAction": 1,
+    "dayId": -1,
+    "enabled": false
+  }
+}
+```
+
+**Errors:**
+- `400` - Invalid fields
+- `404` - Device not found
+- `503` - Device offline
+
+---
+
+#### Delete Timer
+
+```http
+DELETE /api/devices/:id/timers/:ruleId
+```
+
+Deletes a timer rule.
+
+**Response:**
+```json
+{
+  "deleted": true,
+  "ruleId": 502
+}
+```
+
+**Errors:**
+- `400` - Invalid ruleId
+- `404` - Device not found
+- `503` - Device offline
+
+---
+
+#### Toggle Timer State
+
+```http
+PATCH /api/devices/:id/timers/:ruleId/toggle
+```
+
+Toggles the enabled state of a timer rule.
+
+**Request Body:**
+```json
+{
+  "enabled": false
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| enabled | boolean | Yes | New enabled state |
+
+**Response:**
+```json
+{
+  "timer": {
+    "ruleId": 501,
+    "name": "Morning On",
+    "startTime": 25200,
+    "endTime": 28800,
+    "startAction": 1,
+    "endAction": 0,
+    "dayId": -1,
+    "enabled": false
+  }
+}
+```
+
+**Errors:**
+- `400` - Missing or invalid enabled field
+- `404` - Device not found
+- `503` - Device offline
+
+---
+
+### Standby Threshold
+
+#### Get Standby Threshold
+
+```http
+GET /api/devices/:id/threshold
+```
+
+Gets the standby power threshold for an Insight device.
+
+**Response:**
+```json
+{
+  "id": "uuid:Insight-1_0-XXXXX",
+  "thresholdWatts": 8.0,
+  "thresholdMilliwatts": 8000
+}
+```
+
+**Threshold Fields:**
+| Field | Type | Description |
+|-------|------|-------------|
+| id | string | Device ID |
+| thresholdWatts | number | Threshold in watts (0-50) |
+| thresholdMilliwatts | number | Threshold in milliwatts |
+
+**Errors:**
+- `400` - Device does not support Insight
+- `404` - Device not found
+- `503` - Device offline
+
+---
+
+#### Set Standby Threshold
+
+```http
+PUT /api/devices/:id/threshold
+```
+
+Sets the standby power threshold for an Insight device. When power draw falls below this threshold, the device enters standby mode (state 8).
+
+**Request Body:**
+```json
+{
+  "watts": 10.0
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| watts | number | Yes | Threshold in watts (0-50) |
+
+**Response:**
+```json
+{
+  "id": "uuid:Insight-1_0-XXXXX",
+  "thresholdWatts": 10.0,
+  "thresholdMilliwatts": 10000
+}
+```
+
+**Errors:**
+- `400` - Invalid watts value (must be 0-50)
+- `400` - Device does not support Insight
+- `404` - Device not found
+- `503` - Device offline
+
+---
+
+#### Reset Standby Threshold
+
+```http
+POST /api/devices/:id/threshold/reset
+```
+
+Resets the standby power threshold to the device default (8 watts).
+
+**Response:**
+```json
+{
+  "id": "uuid:Insight-1_0-XXXXX",
+  "thresholdWatts": 8.0,
+  "thresholdMilliwatts": 8000
+}
+```
+
+**Errors:**
+- `400` - Device does not support Insight
+- `404` - Device not found
+- `503` - Device offline
+
+---
+
 ### Discovery
 
 #### Discover Devices
@@ -406,6 +722,8 @@ Scans the local network for WeMo devices using SSDP.
 | 404 | DEVICE_NOT_FOUND | Device ID not found in database |
 | 500 | INTERNAL_ERROR | Unexpected server error |
 | 503 | DEVICE_OFFLINE | Device not reachable on network |
+| 503 | RULES_FETCH_ERROR | Failed to fetch timer rules from device |
+| 503 | RULES_STORE_ERROR | Failed to store timer rules to device |
 
 ---
 
@@ -427,6 +745,25 @@ curl http://192.168.1.100:51515/api/discover?timeout=10000
 curl -X POST http://192.168.1.100:51515/api/devices \
   -H "Content-Type: application/json" \
   -d '{"name": "Kitchen Light", "host": "192.168.1.51"}'
+
+# List timers for a device
+curl http://192.168.1.100:51515/api/devices/uuid:Socket-1_0-XXXXX/timers
+
+# Create a timer (turn on at 7:00 AM every day)
+curl -X POST http://192.168.1.100:51515/api/devices/uuid:Socket-1_0-XXXXX/timers \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Morning On", "startTime": 25200, "startAction": 1, "dayId": -1}'
+
+# Delete a timer
+curl -X DELETE http://192.168.1.100:51515/api/devices/uuid:Socket-1_0-XXXXX/timers/501
+
+# Get standby threshold
+curl http://192.168.1.100:51515/api/devices/uuid:Insight-1_0-XXXXX/threshold
+
+# Set standby threshold to 10 watts
+curl -X PUT http://192.168.1.100:51515/api/devices/uuid:Insight-1_0-XXXXX/threshold \
+  -H "Content-Type: application/json" \
+  -d '{"watts": 10.0}'
 ```
 
 ### JavaScript
@@ -446,4 +783,38 @@ const result = await fetch(`${API}/devices/${deviceId}/toggle`, {
 // Get power data
 const { power } = await fetch(`${API}/devices/${deviceId}/insight`)
   .then(r => r.json());
+
+// List timers
+const { timers } = await fetch(`${API}/devices/${deviceId}/timers`)
+  .then(r => r.json());
+
+// Create a timer (turn on at 7:00 AM every day)
+const { timer } = await fetch(`${API}/devices/${deviceId}/timers`, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    name: 'Morning On',
+    startTime: 25200, // 7:00 AM = 7 * 3600 seconds
+    startAction: 1,   // 1 = On
+    dayId: -1         // -1 = Every day
+  })
+}).then(r => r.json());
+
+// Toggle timer enabled state
+const result = await fetch(`${API}/devices/${deviceId}/timers/${ruleId}/toggle`, {
+  method: 'PATCH',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ enabled: false })
+}).then(r => r.json());
+
+// Get standby threshold
+const { thresholdWatts } = await fetch(`${API}/devices/${deviceId}/threshold`)
+  .then(r => r.json());
+
+// Set standby threshold
+const result = await fetch(`${API}/devices/${deviceId}/threshold`, {
+  method: 'PUT',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ watts: 10.0 })
+}).then(r => r.json());
 ```

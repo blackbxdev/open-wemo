@@ -16,7 +16,6 @@ const timerPanelDeps = {
 const ACTION_LABELS = {
   0: "OFF",
   1: "ON",
-  2: "Toggle",
 };
 
 const DAY_BITS = [
@@ -459,7 +458,7 @@ function attachTimerPanelListeners(panel, deviceId, timers) {
 
   panel.onclick = async (event) => {
     const target = event.target;
-    if (!(target instanceof HTMLElement)) {
+    if (!(target instanceof Element)) {
       return;
     }
 
@@ -490,24 +489,12 @@ function attachTimerPanelListeners(panel, deviceId, timers) {
 
     if (action === "timer-delete") {
       const item = actionElement.closest(".timer-item");
-      if (item) {
-        showDeleteConfirmation(item);
-      }
-      return;
-    }
-
-    if (action === "timer-delete-cancel") {
-      hideDeleteConfirmation(panel);
-      return;
-    }
-
-    if (action === "timer-delete-confirm") {
-      const item = actionElement.closest(".timer-item");
       const ruleId = Number(item?.dataset.ruleId);
       if (!Number.isInteger(ruleId)) {
         return;
       }
-      await handleDeleteTimer(panel, deviceId, ruleId);
+      showDeleteModal(panel, deviceId, ruleId);
+      return;
     }
   };
 }
@@ -548,28 +535,60 @@ async function handleDeleteTimer(panel, deviceId, ruleId) {
   }
 }
 
-function showDeleteConfirmation(item) {
-  const panel = item.closest(".timer-panel");
-  if (!panel) {
-    return;
-  }
+function showDeleteModal(panel, deviceId, ruleId) {
+  closeDeleteModal();
 
-  hideDeleteConfirmation(panel);
-
-  const confirm = document.createElement("div");
-  confirm.className = "timer-delete-confirm";
-  confirm.innerHTML = `
-    <span>Delete this timer?</span>
-    <button class="btn" data-action="timer-delete-confirm">Delete</button>
-    <button class="btn" data-action="timer-delete-cancel">Cancel</button>
+  const wrapper = document.createElement("div");
+  wrapper.innerHTML = `
+    <div class="modal" id="timer-delete-modal" role="dialog" aria-modal="true" aria-labelledby="timer-delete-title">
+      <div class="modal-backdrop"></div>
+      <div class="modal-content" style="max-width: 360px;">
+        <div class="modal-header">
+          <h2 class="modal-title" id="timer-delete-title">Delete Timer</h2>
+          <button class="btn btn-icon modal-close" data-action="timer-delete-cancel" aria-label="Close">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M18 6L6 18"/>
+              <path d="M6 6l12 12"/>
+            </svg>
+          </button>
+        </div>
+        <div class="modal-body">
+          <p style="margin: 0; color: var(--color-text-muted);">This timer will be permanently removed from the device.</p>
+        </div>
+        <div class="modal-footer">
+          <button class="btn" data-action="timer-delete-cancel">Cancel</button>
+          <button class="btn btn-danger" data-action="timer-delete-confirm">Delete</button>
+        </div>
+      </div>
+    </div>
   `;
-  item.appendChild(confirm);
+
+  const modal = wrapper.firstElementChild;
+  if (!(modal instanceof HTMLElement)) return;
+  document.body.appendChild(modal);
+
+  const handleClick = async (event) => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+
+    const actionEl = target.closest("[data-action]");
+    if (!(actionEl instanceof HTMLElement)) return;
+
+    const action = actionEl.dataset.action;
+    if (action === "timer-delete-cancel") {
+      closeDeleteModal();
+    } else if (action === "timer-delete-confirm") {
+      closeDeleteModal();
+      await handleDeleteTimer(panel, deviceId, ruleId);
+    }
+  };
+
+  modal.addEventListener("click", handleClick);
 }
 
-function hideDeleteConfirmation(panel) {
-  for (const confirm of panel.querySelectorAll(".timer-delete-confirm")) {
-    confirm.remove();
-  }
+function closeDeleteModal() {
+  const modal = document.getElementById("timer-delete-modal");
+  if (modal) modal.remove();
 }
 
 function openTimerFormModal(deviceId, panel, existingTimer = null) {
@@ -836,7 +855,6 @@ function renderActionButtons(activeValue, group) {
   const values = [
     { value: 1, key: "on", label: "ON" },
     { value: 0, key: "off", label: "OFF" },
-    { value: 2, key: "toggle", label: "Toggle" },
   ];
 
   return values

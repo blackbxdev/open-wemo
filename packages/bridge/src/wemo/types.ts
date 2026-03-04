@@ -213,7 +213,6 @@ export interface SavedDevice {
 export enum TimerAction {
   Off = 0,
   On = 1,
-  Toggle = 2,
 }
 
 /**
