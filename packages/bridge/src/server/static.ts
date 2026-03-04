@@ -22,7 +22,9 @@ import iconSvgPath from "../../../web/icons/icon.svg" with { type: "file" };
 import indexHtmlPath from "../../../web/index.html" with { type: "file" };
 import apiJsPath from "../../../web/js/api.js" with { type: "file" };
 import appJsPath from "../../../web/js/app.js" with { type: "file" };
+import loggerJsPath from "../../../web/js/logger.js" with { type: "file" };
 import setupModeJsPath from "../../../web/js/setup-mode.js" with { type: "file" };
+import timerPanelJsPath from "../../../web/js/timer-panel.js" with { type: "file" };
 import cryptoJsPath from "../../../web/js/vendor/crypto-js.min.js" with { type: "file" };
 import manifestJsonPath from "../../../web/manifest.json" with { type: "file" };
 import swJsPath from "../../../web/sw.js" with { type: "file" };
@@ -35,7 +37,9 @@ const EMBEDDED_FILES: Record<string, string> = {
   "/css/style.css": String(styleCssPath),
   "/js/app.js": String(appJsPath),
   "/js/api.js": String(apiJsPath),
+  "/js/logger.js": String(loggerJsPath),
   "/js/setup-mode.js": String(setupModeJsPath),
+  "/js/timer-panel.js": String(timerPanelJsPath),
   "/js/vendor/crypto-js.min.js": String(cryptoJsPath),
   "/sw.js": String(swJsPath),
   "/manifest.json": String(manifestJsonPath),
