@@ -647,6 +647,15 @@ body {
   }
 }
 
+.modal.modal-centered {
+  align-items: center;
+}
+
+.modal.modal-centered .modal-content {
+  border-radius: var(--radius-xl);
+  margin: var(--spacing-md);
+}
+
 .modal-backdrop {
   position: absolute;
   inset: 0;

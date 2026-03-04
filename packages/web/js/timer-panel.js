@@ -540,9 +540,9 @@ function showDeleteModal(panel, deviceId, ruleId) {
 
   const wrapper = document.createElement("div");
   wrapper.innerHTML = `
-    <div class="modal" id="timer-delete-modal" role="dialog" aria-modal="true" aria-labelledby="timer-delete-title">
+    <div class="modal modal-centered" id="timer-delete-modal" role="dialog" aria-modal="true" aria-labelledby="timer-delete-title" style="align-items: center;">
       <div class="modal-backdrop"></div>
-      <div class="modal-content" style="max-width: 360px;">
+      <div class="modal-content" style="max-width: 360px; border-radius: var(--radius-xl); margin: var(--spacing-md);">
         <div class="modal-header">
           <h2 class="modal-title" id="timer-delete-title">Delete Timer</h2>
           <button class="btn btn-icon modal-close" data-action="timer-delete-cancel" aria-label="Close">
