@@ -1,6 +1,6 @@
 {
   "name": "@open-wemo/bridge",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "private": true,
   "description": "Desktop tray app + REST API server for Open Wemo",
   "type": "module",
