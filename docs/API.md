@@ -674,6 +674,116 @@ Resets the standby power threshold to the device default (8 watts).
 
 ---
 
+### Keep-Alive (LED Mode)
+
+#### Get Keep-Alive Status
+
+```http
+GET /api/devices/:id/keepalive
+```
+
+Gets the keep-alive (LED Mode) status for a device.
+
+**Response:**
+```json
+{
+  "id": "uuid:Insight-1_0-XXXXX",
+  "enabled": false
+}
+```
+
+**Fields:**
+| Field | Type | Description |
+|-------|------|-------------|
+| id | string | Device ID |
+| enabled | boolean | Whether keep-alive is active |
+
+**Errors:**
+- `404` - Device not found
+
+---
+
+#### Enable/Disable Keep-Alive
+
+```http
+PUT /api/devices/:id/keepalive
+```
+
+Enables or disables keep-alive (LED Mode) for a device. When enabled, the bridge sends a periodic heartbeat to prevent the Insight firmware from auto-shutting off low-power devices.
+
+**Request Body:**
+```json
+{
+  "enabled": true
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| enabled | boolean | Yes | Enable or disable keep-alive |
+
+**Response:**
+```json
+{
+  "id": "uuid:Insight-1_0-XXXXX",
+  "enabled": true
+}
+```
+
+**Errors:**
+- `400` - Invalid enabled (must be boolean)
+- `404` - Device not found
+
+---
+
+### Insight Diagnostics
+
+#### Get Insight Diagnostics
+
+```http
+GET /api/devices/:id/insight/diagnostics
+```
+
+Gets comprehensive diagnostics for an Insight device including power state, thresholds, and all device rules.
+
+**Response:**
+```json
+{
+  "id": "uuid:Insight-1_0-XXXXX",
+  "insight": {
+    "state": 1,
+    "stateLabel": "on",
+    "instantPowerMilliwatts": 26000,
+    "instantPowerWatts": 26.0,
+    "reportedThresholdMilliwatts": 500,
+    "reportedThresholdWatts": 0.5,
+    "power": {
+      "isOn": true,
+      "currentWatts": 26.0,
+      "todayKwh": 0.123
+    }
+  },
+  "threshold": {
+    "milliwatts": 500,
+    "watts": 0.5
+  },
+  "rules": {
+    "dbVersion": 42,
+    "totalCount": 1,
+    "timerCount": 1,
+    "nonTimerCount": 0,
+    "all": []
+  }
+}
+```
+
+**Errors:**
+- `400` - Device does not support Insight
+- `404` - Device not found
+- `503` - Device offline
+
+---
+
 ### Discovery
 
 #### Discover Devices
@@ -764,6 +874,17 @@ curl http://192.168.1.100:51515/api/devices/uuid:Insight-1_0-XXXXX/threshold
 curl -X PUT http://192.168.1.100:51515/api/devices/uuid:Insight-1_0-XXXXX/threshold \
   -H "Content-Type: application/json" \
   -d '{"watts": 10.0}'
+
+# Get keep-alive status
+curl http://192.168.1.100:51515/api/devices/uuid:Insight-1_0-XXXXX/keepalive
+
+# Enable keep-alive (LED Mode)
+curl -X PUT http://192.168.1.100:51515/api/devices/uuid:Insight-1_0-XXXXX/keepalive \
+  -H "Content-Type: application/json" \
+  -d '{"enabled": true}'
+
+# Get Insight diagnostics
+curl http://192.168.1.100:51515/api/devices/uuid:Insight-1_0-XXXXX/insight/diagnostics
 ```
 
 ### JavaScript
@@ -817,4 +938,19 @@ const result = await fetch(`${API}/devices/${deviceId}/threshold`, {
   headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify({ watts: 10.0 })
 }).then(r => r.json());
+
+// Get keep-alive status
+const { enabled } = await fetch(`${API}/devices/${deviceId}/keepalive`)
+  .then(r => r.json());
+
+// Enable keep-alive (LED Mode)
+const result = await fetch(`${API}/devices/${deviceId}/keepalive`, {
+  method: 'PUT',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ enabled: true })
+}).then(r => r.json());
+
+// Get diagnostics
+const diagnostics = await fetch(`${API}/devices/${deviceId}/insight/diagnostics`)
+  .then(r => r.json());
 ```
