@@ -12,6 +12,7 @@ import { syncDeviceTime } from "./timesync";
 import {
   type CreateTimerInput,
   DAYS,
+  type DeviceRule,
   TimerAction,
   type TimerRule,
   type TimerSchedule,
@@ -168,6 +169,64 @@ export function parseRulesFromDb(dbBuffer: Uint8Array): TimerRule[] {
           dayId: Number(row.dayId),
         } satisfies TimerRule;
       });
+  } finally {
+    db.close();
+  }
+}
+
+export function parseAllRulesFromDb(dbBuffer: Uint8Array): DeviceRule[] {
+  const db = openDatabaseFromBuffer(dbBuffer);
+
+  try {
+    const query = db.query<
+      {
+        ruleID: number;
+        name: string;
+        ruleType: string;
+        state: string;
+        dayId: number;
+        startTime: number;
+        endTime: number;
+        startAction: number;
+        endAction: number;
+        ruleDuration: number;
+        sensorDuration: number;
+        countdownTime: number;
+      },
+      []
+    >(`
+      SELECT
+        RULES.RuleID AS ruleID,
+        RULES.Name AS name,
+        RULES.Type AS ruleType,
+        RULES.State AS state,
+        RULEDEVICES.DayID AS dayId,
+        RULEDEVICES.StartTime AS startTime,
+        RULEDEVICES.EndTime AS endTime,
+        RULEDEVICES.StartAction AS startAction,
+        RULEDEVICES.EndAction AS endAction,
+        RULEDEVICES.RuleDuration AS ruleDuration,
+        RULEDEVICES.SensorDuration AS sensorDuration,
+        RULEDEVICES.CountdownTime AS countdownTime
+      FROM RULES
+      INNER JOIN RULEDEVICES ON RULES.RuleID = RULEDEVICES.RuleID
+      ORDER BY RULES.RuleID ASC
+    `);
+
+    return query.all().map((row) => ({
+      ruleID: Number(row.ruleID),
+      name: row.name,
+      type: row.ruleType,
+      enabled: String(row.state) === "1",
+      dayId: Number(row.dayId),
+      startTime: Number(row.startTime),
+      endTime: Number(row.endTime),
+      ruleDuration: Number(row.ruleDuration),
+      startAction: Number(row.startAction),
+      endAction: Number(row.endAction),
+      sensorDuration: Number(row.sensorDuration),
+      countdownTime: Number(row.countdownTime),
+    }));
   } finally {
     db.close();
   }

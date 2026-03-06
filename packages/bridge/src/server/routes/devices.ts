@@ -8,7 +8,14 @@ import { Hono } from "hono";
 import { getDatabase } from "../../db";
 import { WemoDeviceClient } from "../../wemo/device";
 import { getDeviceByAddress } from "../../wemo/discovery";
-import { InsightDeviceClient, supportsInsight } from "../../wemo/insight";
+import { InsightDeviceClient, convertToPowerData, supportsInsight } from "../../wemo/insight";
+import {
+  isKeepAliveEnabled,
+  markManualOff,
+  markManualOn,
+  setKeepAliveEnabled,
+} from "../../wemo/keepalive";
+import { fetchRulesDb, parseAllRulesFromDb } from "../../wemo/rules";
 import { clearDeviceRules } from "../../wemo/scheduler";
 import type { SavedDevice, WemoDeviceType } from "../../wemo/types";
 import {
@@ -332,6 +339,7 @@ deviceRoutes.post("/:id/on", async (c) => {
   const device = requireDevice(c.req.param("id"));
   const client = await getDeviceClient(device);
   await client.turnOn();
+  markManualOn(device.id);
   const newState = await client.getBinaryState();
 
   return c.json({
@@ -351,6 +359,7 @@ deviceRoutes.post("/:id/off", async (c) => {
   const device = requireDevice(c.req.param("id"));
   const client = await getDeviceClient(device);
   await client.turnOff();
+  markManualOff(device.id);
   const newState = await client.getBinaryState();
 
   return c.json({
@@ -370,6 +379,12 @@ deviceRoutes.post("/:id/toggle", async (c) => {
   const device = requireDevice(c.req.param("id"));
   const client = await getDeviceClient(device);
   const { binaryState } = await client.toggle();
+
+  if (binaryState === 1) {
+    markManualOn(device.id);
+  } else {
+    markManualOff(device.id);
+  }
 
   return c.json({
     id: device.id,
@@ -441,5 +456,78 @@ deviceRoutes.post("/:id/threshold/reset", async (c) => {
     id: device.id,
     thresholdWatts: confirmedMilliwatts / 1000,
     thresholdMilliwatts: confirmedMilliwatts,
+  });
+});
+
+// =============================================================================
+// Keep-Alive (LED / Low-Power Device Support)
+// =============================================================================
+
+deviceRoutes.get("/:id/keepalive", (c) => {
+  const device = requireDevice(c.req.param("id"));
+  return c.json({
+    id: device.id,
+    enabled: isKeepAliveEnabled(device.id),
+  });
+});
+
+deviceRoutes.put("/:id/keepalive", async (c) => {
+  const device = requireDevice(c.req.param("id"));
+  const body = await c.req.json<{ enabled?: unknown }>();
+
+  if (typeof body.enabled !== "boolean") {
+    throw new ValidationError("Invalid enabled: must be a boolean", ["enabled"]);
+  }
+
+  setKeepAliveEnabled(device.id, body.enabled);
+
+  return c.json({
+    id: device.id,
+    enabled: body.enabled,
+  });
+});
+
+// =============================================================================
+// Insight Diagnostics
+// =============================================================================
+
+deviceRoutes.get("/:id/insight/diagnostics", async (c) => {
+  const device = requireDevice(c.req.param("id"));
+  const client = await getInsightClient(device);
+
+  const [insightParams, thresholdMilliwatts, rulesResult] = await Promise.all([
+    client.getInsightParams(),
+    client.getPowerThreshold(),
+    fetchRulesDb(device.host, device.port),
+  ]);
+
+  const powerData = convertToPowerData(insightParams);
+  const allRules = parseAllRulesFromDb(rulesResult.dbBuffer);
+  const nonTimerRules = allRules.filter((r) => r.type !== "Timer");
+
+  const stateLabels: Record<number, string> = { 0: "off", 1: "on", 8: "standby" };
+
+  return c.json({
+    id: device.id,
+    insight: {
+      state: insightParams.state,
+      stateLabel: stateLabels[insightParams.state] ?? "unknown",
+      instantPowerMilliwatts: insightParams.instantPower,
+      instantPowerWatts: insightParams.instantPower / 1000,
+      reportedThresholdMilliwatts: insightParams.standbyThreshold,
+      reportedThresholdWatts: insightParams.standbyThreshold / 1000,
+      power: powerData,
+    },
+    threshold: {
+      milliwatts: thresholdMilliwatts,
+      watts: thresholdMilliwatts / 1000,
+    },
+    rules: {
+      dbVersion: rulesResult.version,
+      totalCount: allRules.length,
+      timerCount: allRules.length - nonTimerRules.length,
+      nonTimerCount: nonTimerRules.length,
+      all: allRules,
+    },
   });
 });
