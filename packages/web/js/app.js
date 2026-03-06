@@ -1017,6 +1017,33 @@ async function handleThresholdReset(event) {
   }
 }
 
+async function handleKeepAliveToggle(event) {
+  const toggle = event.currentTarget;
+  const deviceId = toggle.dataset.keepaliveToggle;
+  toggle.disabled = true;
+  try {
+    await api.setKeepAlive(deviceId, toggle.checked);
+  } catch (error) {
+    toggle.checked = !toggle.checked;
+    showToast(error.message || "Failed to update LED mode", "error");
+  } finally {
+    toggle.disabled = false;
+  }
+}
+
+async function fetchKeepAliveForPanel(deviceId, panel) {
+  try {
+    const result = await api.getKeepAlive(deviceId);
+    const toggle = panel.querySelector("[data-keepalive-toggle]");
+    if (toggle) {
+      toggle.checked = result.enabled;
+      toggle.disabled = false;
+    }
+  } catch (error) {
+    console.error("[App] Failed to fetch keep-alive state:", error);
+  }
+}
+
 function handleTimerClick(event) {
   const btn = event.currentTarget;
   const card = btn.closest("[data-device-id]");
@@ -1065,6 +1092,16 @@ function handleConfigClick(event) {
                 title="Reset to default" disabled>Reset</button>
       </div>
     </div>
+    <div class="keepalive-control">
+      <div class="keepalive-header">
+        <span class="keepalive-label">LED Mode</span>
+        <span class="keepalive-help" aria-label="Keeps low-power devices like LED lights from being automatically shut off by the Insight's standby detection">?</span>
+      </div>
+      <label class="toggle-switch">
+        <input type="checkbox" data-keepalive-toggle="${escapeHtml(deviceId)}" disabled>
+        <span class="toggle-slider"></span>
+      </label>
+    </div>
   `;
 
   main.insertAdjacentElement("afterend", panel);
@@ -1075,7 +1112,13 @@ function handleConfigClick(event) {
   if (input) input.addEventListener("change", handleThresholdChange);
   if (resetBtn) resetBtn.addEventListener("click", handleThresholdReset);
 
+  const keepAliveToggle = panel.querySelector("[data-keepalive-toggle]");
+  if (keepAliveToggle) {
+    keepAliveToggle.addEventListener("change", handleKeepAliveToggle);
+  }
+
   fetchThresholdForPanel(deviceId, panel);
+  fetchKeepAliveForPanel(deviceId, panel);
 }
 
 async function fetchThresholdForPanel(deviceId, panel) {

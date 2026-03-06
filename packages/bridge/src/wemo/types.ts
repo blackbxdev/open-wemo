@@ -208,6 +208,37 @@ export interface SavedDevice {
 }
 
 /**
+ * Raw rule entry from the WeMo rules database (all types, unfiltered).
+ * Used for diagnostics to inspect what rules exist on a device.
+ */
+export interface DeviceRule {
+  /** Rule ID in the device database */
+  ruleID: number;
+  /** Rule name */
+  name: string;
+  /** Rule type (e.g., "Timer", "Long Press", or any other firmware-defined type) */
+  type: string;
+  /** Whether the rule is currently enabled */
+  enabled: boolean;
+  /** Day bitmask: -1=daily, or bitmask for specific days */
+  dayId: number;
+  /** Start time in seconds from midnight */
+  startTime: number;
+  /** End time in seconds from midnight */
+  endTime: number;
+  /** Duration in seconds */
+  ruleDuration: number;
+  /** Action at start (0=off, 1=on, 2=toggle, -1=none) */
+  startAction: number;
+  /** Action at end (0=off, 1=on, 2=toggle, -1=none) */
+  endAction: number;
+  /** Sensor duration in seconds (-1 if unused) */
+  sensorDuration: number;
+  /** Countdown time in seconds (-1 if unused) */
+  countdownTime: number;
+}
+
+/**
  * Action values for timer rules.
  */
 export enum TimerAction {

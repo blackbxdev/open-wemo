@@ -314,6 +314,9 @@ export function createApp(config: ServerConfig = {}): Hono {
         "PATCH /api/devices/:id/timers/:ruleId",
         "DELETE /api/devices/:id/timers/:ruleId",
         "PATCH /api/devices/:id/timers/:ruleId/toggle",
+        "GET /api/devices/:id/keepalive",
+        "PUT /api/devices/:id/keepalive",
+        "GET /api/devices/:id/insight/diagnostics",
       ],
     });
   });

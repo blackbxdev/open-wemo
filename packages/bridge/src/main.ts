@@ -15,6 +15,7 @@ import {
 } from "./tray/menu";
 import { shouldShowWelcome } from "./tray/welcome";
 import { discoverDevices } from "./wemo/discovery";
+import { startKeepAlive } from "./wemo/keepalive";
 import { loadDeviceRules, startScheduler } from "./wemo/scheduler";
 
 /** Default server port (51515 chosen to avoid conflicts with common dev servers) */
@@ -27,6 +28,7 @@ interface AppState {
   isShuttingDown: boolean;
   startOnLogin: boolean;
   scheduler: { stop: () => void } | null;
+  keepAlive: { stop: () => void } | null;
 }
 
 const state: AppState = {
@@ -35,6 +37,7 @@ const state: AppState = {
   isShuttingDown: false,
   startOnLogin: false,
   scheduler: null,
+  keepAlive: null,
 };
 
 /**
@@ -130,6 +133,9 @@ async function initialize(): Promise<void> {
     loadDeviceRules(device.id, device.host, device.port).catch(() => {});
   }
   console.log(`[Main] Timer scheduler started (${devices.length} devices loaded)`);
+
+  // Step 6: Start keep-alive service for Insight devices with low-power loads
+  state.keepAlive = startKeepAlive();
 
   // Step 6: Show first-launch setup if needed
   if (shouldShowWelcome()) {
@@ -267,7 +273,11 @@ async function shutdown(): Promise<void> {
   state.isShuttingDown = true;
   console.log("[Main] Shutting down...");
 
-  // Step 0: Stop timer scheduler
+  if (state.keepAlive) {
+    state.keepAlive.stop();
+    state.keepAlive = null;
+  }
+
   if (state.scheduler) {
     state.scheduler.stop();
     state.scheduler = null;

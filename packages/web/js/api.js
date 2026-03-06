@@ -224,6 +224,17 @@ export const api = {
     });
   },
 
+  async getKeepAlive(id) {
+    return request(`/devices/${encodeURIComponent(id)}/keepalive`);
+  },
+
+  async setKeepAlive(id, enabled) {
+    return request(`/devices/${encodeURIComponent(id)}/keepalive`, {
+      method: "PUT",
+      body: JSON.stringify({ enabled }),
+    });
+  },
+
   /**
    * Discover devices on the network.
    * @param {number} timeout - Discovery timeout in seconds (default: 5)
