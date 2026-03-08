@@ -787,17 +787,6 @@ function renderOfflineBanner() {
 // The functions below are kept minimal - only enterSetupMode is used to show
 // the bridge-required message when a user accidentally connects to a Wemo AP.
 
-/**
- * Shows the bridge-required message when user is on Wemo AP.
- * Previously this entered a PWA-based setup mode, but browser CORS restrictions
- * prevent proper SOAP communication, so setup must be done from the bridge.
- * @deprecated PWA setup mode removed - use bridge "Setup New Device" menu instead
- */
-function enterSetupMode() {
-  // Show the bridge-required instructions modal instead of entering setup mode
-  showSetupInstructionsModal();
-}
-
 // ============================================
 // Power Stats (Insight Devices)
 // ============================================

@@ -5,7 +5,7 @@
  * Uses systray2 for cross-platform support.
  */
 
-import { chmodSync, existsSync, readdirSync, readFileSync } from "node:fs";
+import { chmodSync, existsSync, readFileSync, readdirSync } from "node:fs";
 import { homedir, platform } from "node:os";
 import { join } from "node:path";
 

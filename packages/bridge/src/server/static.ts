@@ -114,41 +114,6 @@ function getWebDir(): string {
 }
 
 /**
- * Recursively reads all files from a directory (development mode).
- */
-function readFilesRecursively(dir: string, basePath = ""): void {
-  if (!existsSync(dir)) {
-    console.warn(`[Static] Directory not found: ${dir}`);
-    return;
-  }
-
-  const entries = readdirSync(dir);
-
-  for (const entry of entries) {
-    const fullPath = join(dir, entry);
-    const relativePath = basePath ? `${basePath}/${entry}` : entry;
-    const stat = statSync(fullPath);
-
-    if (stat.isDirectory()) {
-      readFilesRecursively(fullPath, relativePath);
-    } else if (stat.isFile()) {
-      try {
-        // Use Bun.file for reading - works with both filesystem and embedded paths
-        const file = Bun.file(fullPath);
-        const content = new Uint8Array(file.stream() as unknown as ArrayBuffer);
-        const mimeType = getMimeType(entry);
-        fileCache.set(`/${relativePath}`, {
-          content,
-          mimeType,
-        });
-      } catch (error) {
-        console.warn(`[Static] Failed to read file: ${relativePath}`, error);
-      }
-    }
-  }
-}
-
-/**
  * Loads embedded files (production/compiled mode).
  * Uses Bun.file() which works with both filesystem and $bunfs/ paths.
  */

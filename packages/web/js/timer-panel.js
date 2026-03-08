@@ -47,7 +47,7 @@ export function initTimerPanel(deps) {
  * @param {string} deviceId - Device ID
  * @returns {string} HTML string for timer button
  */
-export function renderTimerButton(deviceId) {
+export function renderTimerButton(_deviceId) {
   return `
     <button class="timer-btn" data-action="timer" aria-label="Timers" aria-expanded="false">
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">

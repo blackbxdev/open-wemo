@@ -86,7 +86,7 @@ export function isInstalledLocation(): boolean {
   console.log(`[Install] Expected installed path: ${installedExePath}`);
 
   // Check if current path matches the installed exe path exactly, or is within install directory
-  const isInstalled = currentPath === installedExePath || currentPath.startsWith(installDir + "/");
+  const isInstalled = currentPath === installedExePath || currentPath.startsWith(`${installDir}/`);
 
   console.log(`[Install] Is installed location: ${isInstalled}`);
 
