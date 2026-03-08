@@ -20,7 +20,6 @@ import { $ } from "bun";
 const ROOT_DIR = resolve(import.meta.dir, "..");
 const BRIDGE_DIR = join(ROOT_DIR, "packages/bridge");
 const DIST_DIR = join(BRIDGE_DIR, "dist");
-const ENTRY_FILE = join(BRIDGE_DIR, "src/main.ts");
 
 // Get version from package.json
 const packageJson = JSON.parse(readFileSync(join(BRIDGE_DIR, "package.json"), "utf-8"));
@@ -66,9 +65,7 @@ function findEditBin(): string | null {
             return editbinPath;
           }
         }
-      } catch {
-        continue;
-      }
+      } catch {}
     }
   }
 
@@ -91,10 +88,10 @@ async function patchWindowsSubsystem(exePath: string): Promise<boolean> {
     if (result.exitCode === 0) {
       console.log("   ✓ Patched to hide console window");
       return true;
-    } else {
-      console.warn("   ⚠️  Failed to patch subsystem:", result.stderr.toString());
-      return false;
     }
+
+    console.warn("   ⚠️  Failed to patch subsystem:", result.stderr.toString());
+    return false;
   } catch (error) {
     console.warn("   ⚠️  Failed to run editbin:", error);
     return false;

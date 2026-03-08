@@ -2,7 +2,7 @@ import { getDatabase } from "../db";
 import { soapRequest } from "./soap";
 import type { SavedDevice } from "./types";
 
-const KEEPALIVE_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+const KEEPALIVE_INTERVAL_MS = 30 * 1000; // 30 seconds
 const SETTINGS_PREFIX = "keepalive:";
 
 const manuallyOff = new Set<string>();
@@ -67,6 +67,7 @@ async function tickDevice(device: SavedDevice): Promise<void> {
 
   try {
     const state = await getInsightState(device);
+    console.log(`[KeepAlive] Checked "${device.name}" — state: ${state}`);
     // state 8 = standby (relay on but firmware may auto-kill soon)
     // state 0 = off (firmware already killed it)
     if (state === 8 || state === 0) {
@@ -107,7 +108,7 @@ export function startKeepAlive(): { stop: () => void } {
     });
   }, 10_000);
 
-  console.log("[KeepAlive] Started (5-minute interval)");
+  console.log("[KeepAlive] Started (30-second interval)");
 
   return {
     stop: () => {

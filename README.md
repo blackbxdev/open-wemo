@@ -81,7 +81,7 @@ Open Wemo consists of two parts that work together:
 | **Auto-Refresh** | Device states update automatically (configurable interval) |
 | **Timer Schedules** | Schedule devices to turn on or off at specific times, daily or per day of week |
 | **Standby Threshold** | Configure the power level at which Insight devices are considered in standby (via device config panel) |
-| **LED Mode** | Prevent Insight devices from auto-shutting off low-power devices like LED lights (via device config panel) |
+| **LED Mode** | Prevent Insight devices from auto-shutting off low-power devices like LED lights while keeping manual off behavior intact |
 | **QR Code Setup** | Scan a code to instantly set up the app on any phone |
 | **Cross-Platform** | Bridge runs on Windows, macOS, and Linux |
 | **No Cloud Required** | Everything stays on your local network — private by design |
@@ -254,7 +254,7 @@ For Insight devices, you can adjust power monitoring settings:
 
 This is useful if your device draws a small amount of power when "off" (like a TV in standby mode) and you want to fine-tune when it shows as "Standby" vs. "Off".
 
-- **LED Mode** — toggle to keep low-power devices (like LED lights) from being automatically shut off by the Insight's standby detection. The bridge sends a periodic heartbeat to prevent the firmware timeout. This respects manual off commands — if you turn the device off, the keep-alive pauses.
+- **LED Mode** — toggle to keep low-power devices (like LED lights) from being automatically shut off by the Insight firmware. While enabled, Open Wemo keeps the device in normal "On" mode, hides the standby-threshold control, and only applies protection after you turn the device on yourself. If you turn the device off, it stays off.
 
 ### Header Actions
 
@@ -356,7 +356,7 @@ chmod +x ~/.cache/node-systray/*/tray_linux_release
 
 - **Give it time**: Insight devices average power over time; readings stabilize after a few minutes
 - **Standby mode**: Very low power (< 1 watt) shows as "Standby" state
-- **Adjust standby threshold**: Tap the gear icon on the device card to customize the wattage at which the device is considered "Standby"
+- **Adjust standby threshold**: Tap the gear icon on the device card to customize the wattage at which the device is considered "Standby" when LED Mode is off
 - **Device firmware**: Older WeMo firmware may report slightly different formats
 
 ---
@@ -571,7 +571,7 @@ A: Nope! Just install the bridge and it will automatically discover your existin
 A: Yes! Tap the timer icon on any device card to create schedules. Set a time, choose on or off, and select which days of the week. Timers run on the bridge, so they're reliable and consistent as long as the bridge is running.
 
 **Q: What is the standby threshold?**  
-A: For Insight devices, the standby threshold is the power level (in watts) below which the device shows as "Standby" instead of "Off". This is useful for devices that draw a small amount of power when turned off (like TVs or chargers). You can adjust it by tapping the gear icon on an Insight device card. The range is 0-50 watts.
+A: For Insight devices, the standby threshold is the power level (in watts) below which the device shows as "Standby" instead of "Off". This is useful for devices that draw a small amount of power when turned off (like TVs or chargers). You can adjust it by tapping the gear icon on an Insight device card when LED Mode is off. The range is 0-50 watts.
 
 **Q: My Insight device keeps turning off my LED light. What can I do?**  
-A: Enable "LED Mode" in the device's configuration panel (tap the gear icon). This sends a periodic heartbeat to prevent the Insight's firmware from auto-shutting off low-power devices that draw too little power for the sensor to detect. LED Mode respects manual off commands — if you turn the device off yourself, it stays off.
+A: Enable "LED Mode" in the device's configuration panel (tap the gear icon). Open Wemo lowers the Insight auto-off threshold, keeps the device reporting as "On" instead of "Standby," and sends a periodic keep-alive only after you turn the device on yourself. If you turn the device off yourself, it stays off.

@@ -709,7 +709,7 @@ Gets the keep-alive (LED Mode) status for a device.
 PUT /api/devices/:id/keepalive
 ```
 
-Enables or disables keep-alive (LED Mode) for a device. When enabled, the bridge sends a periodic heartbeat to prevent the Insight firmware from auto-shutting off low-power devices.
+Enables or disables keep-alive (LED Mode) for a device. When enabled, Open Wemo also adjusts the Insight auto-off and display thresholds so low-power loads stay in normal "On" mode instead of falling into standby behavior. The keep-alive only protects devices after the user has turned them on; enabling LED Mode does not turn an intentionally off device back on.
 
 **Request Body:**
 ```json

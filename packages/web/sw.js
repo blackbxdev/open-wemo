@@ -48,7 +48,7 @@ self.addEventListener("activate", (event) => {
 });
 
 // Fetch event - always go to network, no caching
-self.addEventListener("fetch", (event) => {
+self.addEventListener("fetch", (_event) => {
   // Let all requests pass through to the network
   // Don't intercept - just let the browser handle it normally
   return;

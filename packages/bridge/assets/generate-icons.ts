@@ -54,7 +54,7 @@ const iconPng = renderSvgToPng(svgContent, 32);
 const iconIco = createIco(iconPng, 32, 32);
 
 // Create error icon (red background instead of dark blue)
-const errorSvgContent = svgContent.replace('#1a1a2e', '#7f1d1d').replace('#4ade80', '#fca5a5');
+const errorSvgContent = svgContent.replace("#1a1a2e", "#7f1d1d").replace("#4ade80", "#fca5a5");
 const iconErrorPng = renderSvgToPng(errorSvgContent, 32);
 const iconErrorIco = createIco(iconErrorPng, 32, 32);
 

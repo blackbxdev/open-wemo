@@ -259,10 +259,11 @@ export function addRuleToDb(
       "INSERT INTO RULES (RuleID, Name, Type, RuleOrder, StartDate, EndDate, State, Sync) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)"
     ).run(nextRuleId, rule.name, "Timer", 0, "12201982", "07301982", "1", "NOSYNC");
 
-    const hasEndTime = rule.endTime !== undefined && rule.endTime > 0;
-    const effectiveEndTime = hasEndTime ? rule.endTime! : 86400;
+    const endTime = rule.endTime;
+    const hasEndTime = endTime !== undefined && endTime > 0;
+    const effectiveEndTime = hasEndTime ? endTime : 86400;
     const ruleDuration = hasEndTime
-      ? (rule.endTime! - rule.startTime + 86400) % 86400
+      ? (endTime - rule.startTime + 86400) % 86400
       : 86400 - rule.startTime;
 
     db.query(

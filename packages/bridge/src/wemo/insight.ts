@@ -194,6 +194,21 @@ export class InsightDeviceClient extends WemoDeviceClient {
     }
   }
 
+  async setAutoPowerThreshold(milliwatts: number): Promise<void> {
+    const response = await soapRequest(
+      this.host,
+      this.port,
+      INSIGHT_CONTROL_URL,
+      INSIGHT_SERVICE,
+      "SetAutoPowerThreshold",
+      `<PowerThreshold>${Math.round(milliwatts)}</PowerThreshold>`
+    );
+
+    if (!response.success) {
+      throw new Error(`Failed to set AutoPowerThreshold: ${response.error}`);
+    }
+  }
+
   async resetPowerThreshold(): Promise<void> {
     const response = await soapRequest(
       this.host,

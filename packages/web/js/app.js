@@ -787,17 +787,6 @@ function renderOfflineBanner() {
 // The functions below are kept minimal - only enterSetupMode is used to show
 // the bridge-required message when a user accidentally connects to a Wemo AP.
 
-/**
- * Shows the bridge-required message when user is on Wemo AP.
- * Previously this entered a PWA-based setup mode, but browser CORS restrictions
- * prevent proper SOAP communication, so setup must be done from the bridge.
- * @deprecated PWA setup mode removed - use bridge "Setup New Device" menu instead
- */
-function enterSetupMode() {
-  // Show the bridge-required instructions modal instead of entering setup mode
-  showSetupInstructionsModal();
-}
-
 // ============================================
 // Power Stats (Insight Devices)
 // ============================================
@@ -1023,6 +1012,7 @@ async function handleKeepAliveToggle(event) {
   toggle.disabled = true;
   try {
     await api.setKeepAlive(deviceId, toggle.checked);
+    updateThresholdVisibility(toggle);
   } catch (error) {
     toggle.checked = !toggle.checked;
     showToast(error.message || "Failed to update LED mode", "error");
@@ -1038,9 +1028,24 @@ async function fetchKeepAliveForPanel(deviceId, panel) {
     if (toggle) {
       toggle.checked = result.enabled;
       toggle.disabled = false;
+      updateThresholdVisibility(toggle);
     }
   } catch (error) {
     console.error("[App] Failed to fetch keep-alive state:", error);
+  }
+}
+
+function updateThresholdVisibility(toggle) {
+  const panel = toggle.closest(".device-config-panel");
+  if (!panel) return;
+  const thresholdControl = panel.querySelector("[data-threshold-control]");
+  if (!thresholdControl) return;
+  const keepaliveControl = panel.querySelector(".keepalive-control");
+  thresholdControl.style.display = toggle.checked ? "none" : "";
+  if (keepaliveControl) {
+    keepaliveControl.style.borderTop = toggle.checked ? "none" : "";
+    keepaliveControl.style.marginTop = toggle.checked ? "0" : "";
+    keepaliveControl.style.paddingTop = toggle.checked ? "0" : "";
   }
 }
 
