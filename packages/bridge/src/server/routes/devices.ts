@@ -481,6 +481,34 @@ deviceRoutes.put("/:id/keepalive", async (c) => {
 
   setKeepAliveEnabled(device.id, body.enabled);
 
+  if (device.deviceType === "Insight") {
+    try {
+      const client = await getInsightClient(device);
+      const autoThresholdWatts = body.enabled ? 0 : 8;
+      const displayThresholdMilliwatts = body.enabled ? 1 : 8000;
+      await Promise.all([
+        client.setAutoPowerThreshold(autoThresholdWatts),
+        client.setPowerThreshold(displayThresholdMilliwatts),
+      ]);
+
+      if (body.enabled) {
+        const state = await client.getBinaryState();
+        if (state === 0 || state === 8) {
+          markManualOff(device.id);
+        }
+      }
+
+      console.log(
+        `[KeepAlive] Set auto threshold to ${autoThresholdWatts}W, display threshold to ${displayThresholdMilliwatts}mW for "${device.name}"`
+      );
+    } catch (error) {
+      console.error(
+        `[KeepAlive] Failed to set power thresholds for "${device.name}":`,
+        error instanceof Error ? error.message : error
+      );
+    }
+  }
+
   return c.json({
     id: device.id,
     enabled: body.enabled,
