@@ -2,7 +2,9 @@ import { existsSync, unlinkSync } from "node:fs";
 import { platform } from "node:os";
 import { join } from "node:path";
 import { closeDatabase, getAppDataDir, getDatabase } from "./db";
+import { getDeviceService } from "./device-service";
 import { handleAutoInstall } from "./install";
+import { getIntegrationManager } from "./integrations";
 import { type ServerInstance, startServer } from "./server";
 import { getSavedAutostartPreference, setAutostart, syncAutostart } from "./tray/autostart";
 import { type AppTray, createTray } from "./tray/index";
@@ -137,7 +139,15 @@ async function initialize(): Promise<void> {
   // Step 6: Start keep-alive service for Insight devices with low-power loads
   state.keepAlive = startKeepAlive();
 
-  // Step 6: Show first-launch setup if needed
+  // Step 7: Start Matter bridge if enabled
+  console.log("[Main] Checking Matter integration...");
+  try {
+    await getIntegrationManager().startFromSettings();
+  } catch (error) {
+    console.error("[Main] Matter integration failed to start:", error);
+  }
+
+  // Step 8: Show first-launch setup if needed
   if (shouldShowWelcome()) {
     console.log("[Main] First launch detected, opening device setup page...");
     openInBrowser(`${getServerUrl(DEFAULT_PORT)}/setup`);
@@ -151,7 +161,8 @@ async function initialize(): Promise<void> {
  * Creates the system tray with menu.
  */
 async function createSystemTray(): Promise<void> {
-  const menuItems = createMenuItems(state.startOnLogin);
+  const matterEnabled = getIntegrationManager().isMatterEnabled();
+  const menuItems = createMenuItems(state.startOnLogin, matterEnabled);
 
   state.tray = createTray({
     tooltip: "Open Wemo - WeMo Device Controller",
@@ -176,6 +187,22 @@ async function createSystemTray(): Promise<void> {
           console.log("[Main] Opening device setup page...");
           openInBrowser(`${getServerUrl(DEFAULT_PORT)}/setup`);
         },
+        onLinkGoogleHome: () => {
+          console.log("[Main] Opening Google Home / Matter page...");
+          openInBrowser(`${getServerUrl(DEFAULT_PORT)}/matter`);
+        },
+        onMatterToggle: async (enabled: boolean) => {
+          console.log(`[Main] Toggling Matter bridge: ${enabled}`);
+          const mgr = getIntegrationManager();
+          if (enabled) {
+            await mgr.enableMatter();
+          } else {
+            await mgr.disableMatter();
+          }
+          state.tray?.updateMenuItem(MenuItemIds.MATTER_TOGGLE, {
+            checked: mgr.isMatterEnabled(),
+          });
+        },
         onDiscover: async () => {
           console.log("[Main] Running device discovery...");
           await runBackgroundDiscovery();
@@ -196,7 +223,8 @@ async function createSystemTray(): Promise<void> {
       () => state.startOnLogin,
       (value) => {
         state.startOnLogin = value;
-      }
+      },
+      () => getIntegrationManager().isMatterEnabled()
     ),
   });
 
@@ -211,26 +239,21 @@ async function runBackgroundDiscovery(): Promise<void> {
     const result = await discoverDevices({ timeout: 5000 });
     console.log(`[Main] Discovery found ${result.devices.length} device(s)`);
 
-    // Save discovered devices to database
     const db = getDatabase();
+    const deviceService = getDeviceService();
+
     for (const device of result.devices) {
       const deviceId = device.serialNumber || `device-${Date.now()}`;
 
       // Check if device exists by ID (serial number) - handles IP changes after re-setup
       const existingById = db.getDeviceById(deviceId);
       if (existingById) {
-        // Device exists - check if IP changed
         if (existingById.host !== device.host || existingById.port !== device.port) {
           console.log(
             `[Main] Device ${device.name} IP changed: ${existingById.host}:${existingById.port} -> ${device.host}:${device.port}`
           );
-          // Update the device with new IP
-          db.saveDevice({
-            ...existingById,
-            host: device.host,
-            port: device.port,
-            updatedAt: new Date().toISOString(),
-          });
+          // Emits deviceUpdated so Matter can stay in sync
+          deviceService.syncDeviceAddress(existingById.id, device.host, device.port);
         } else {
           db.updateLastSeen(existingById.id);
         }
@@ -244,15 +267,13 @@ async function runBackgroundDiscovery(): Promise<void> {
         continue;
       }
 
-      // New device - save it
-      db.saveDevice({
+      // New device - save via DeviceService so Matter receives deviceAdded
+      await deviceService.saveDevice({
         id: deviceId,
         name: device.name,
         deviceType: device.deviceType,
         host: device.host,
         port: device.port,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
       });
       console.log(`[Main] Saved new device: ${device.name}`);
     }
@@ -272,6 +293,14 @@ async function shutdown(): Promise<void> {
 
   state.isShuttingDown = true;
   console.log("[Main] Shutting down...");
+
+  // Stop Matter / integrations first
+  try {
+    await getIntegrationManager().stopAll();
+    console.log("[Main] Integrations stopped");
+  } catch (error) {
+    console.error("[Main] Error stopping integrations:", error);
+  }
 
   if (state.keepAlive) {
     state.keepAlive.stop();

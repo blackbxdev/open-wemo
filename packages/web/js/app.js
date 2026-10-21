@@ -82,6 +82,11 @@ const $qrModalUrl = document.getElementById("qr-modal-url");
 const $setupInstructionsModal = document.getElementById("setup-instructions-modal");
 const $setupInstructionsClose = document.getElementById("setup-instructions-close");
 const $setupInstructionsCancel = document.getElementById("setup-instructions-cancel");
+const $settingsMatterBtn = document.getElementById("settings-matter-btn");
+const $settingsMatterBadge = document.getElementById("settings-matter-badge");
+const $matterModal = document.getElementById("matter-modal");
+const $matterModalClose = document.getElementById("matter-modal-close");
+const $matterContent = document.getElementById("matter-content");
 
 // ============================================
 // Service Worker Registration
@@ -1525,12 +1530,16 @@ async function loadDevices() {
 // ============================================
 
 /**
- * Escapes HTML special characters.
+ * Escapes HTML special characters. Quotes are escaped too so the result is
+ * safe inside attribute values.
  */
 function escapeHtml(text) {
-  const div = document.createElement("div");
-  div.textContent = text;
-  return div.innerHTML;
+  return String(text ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 // ============================================
@@ -1661,6 +1670,7 @@ function applyTheme(theme) {
 function openSettingsModal() {
   updateSettingsUI();
   updateBridgeStatus();
+  refreshMatterBadge();
   $settingsModal.classList.remove("hidden");
 }
 
@@ -1877,6 +1887,9 @@ function setupEscapeKeyHandler() {
       if ($setupInstructionsModal && !$setupInstructionsModal.classList.contains("hidden")) {
         hideSetupInstructionsModal();
       }
+      if ($matterModal && !$matterModal.classList.contains("hidden")) {
+        closeMatterModal();
+      }
       const $timerFormModal = document.getElementById("timer-form-modal");
       if ($timerFormModal) {
         $timerFormModal.remove();
@@ -1943,6 +1956,16 @@ function setupSettingsListeners() {
     $qrModalClose.addEventListener("click", hideQRModal);
   }
   $qrModal?.querySelector(".modal-backdrop")?.addEventListener("click", hideQRModal);
+
+  // Matter / Google Home
+  if ($settingsMatterBtn) {
+    $settingsMatterBtn.addEventListener("click", () => {
+      closeSettingsModal();
+      openMatterModal();
+    });
+  }
+  $matterModalClose?.addEventListener("click", closeMatterModal);
+  $matterModal?.querySelector(".modal-backdrop")?.addEventListener("click", closeMatterModal);
 }
 
 // ============================================
@@ -2024,6 +2047,510 @@ async function generateQRCode() {
       </div>
     `;
   }
+}
+
+// ============================================
+// Matter / Google Home
+// ============================================
+
+const matterState = {
+  status: null,
+  busy: false,
+};
+
+const GOOGLE_CONSOLE_URL = "https://console.home.google.com/projects";
+
+/**
+ * Updates the "Off / On / Linked" badge on the settings button.
+ */
+async function refreshMatterBadge() {
+  if (!$settingsMatterBadge) return;
+
+  try {
+    const status = await api.getMatterStatus();
+    matterState.status = status;
+
+    let label = "Off";
+    let modifier = "settings-badge-off";
+    if (status.enabled && status.commissioned) {
+      label = "Linked";
+      modifier = "settings-badge-on";
+    } else if (status.enabled && status.running) {
+      label = "Ready to pair";
+      modifier = "settings-badge-warn";
+    } else if (status.enabled) {
+      label = "Error";
+      modifier = "settings-badge-error";
+    }
+
+    $settingsMatterBadge.textContent = label;
+    $settingsMatterBadge.className = `settings-badge ${modifier}`;
+  } catch (error) {
+    log("[App] Could not read Matter status:", error);
+    $settingsMatterBadge.textContent = "—";
+    $settingsMatterBadge.className = "settings-badge settings-badge-off";
+  }
+}
+
+/**
+ * Opens the Matter / Google Home modal.
+ */
+function openMatterModal() {
+  if (!$matterModal) return;
+  $matterModal.classList.remove("hidden");
+  trapFocus($matterModal);
+  loadMatterStatus();
+}
+
+function closeMatterModal() {
+  $matterModal?.classList.add("hidden");
+  refreshMatterBadge();
+}
+
+/**
+ * Fetches Matter status and renders the panel.
+ */
+async function loadMatterStatus() {
+  if (!$matterContent) return;
+
+  $matterContent.innerHTML = `
+    <div class="loading" role="status">
+      <div class="spinner" aria-hidden="true"></div>
+      <p>Loading Matter status...</p>
+    </div>
+  `;
+
+  try {
+    matterState.status = await api.getMatterStatus();
+    renderMatterPanel();
+  } catch (error) {
+    $matterContent.innerHTML = `
+      <div class="matter-alert matter-alert-error">
+        <strong>Couldn't reach the bridge.</strong>
+        <p>${escapeHtml(error.message)}</p>
+      </div>
+    `;
+  }
+}
+
+/**
+ * Renders the Matter panel from the current status.
+ */
+function renderMatterPanel() {
+  if (!$matterContent) return;
+
+  const status = matterState.status ?? {};
+  const pairing = status.pairing;
+  const identity = status.identity ?? {};
+  const busy = matterState.busy;
+
+  const stateLabel = !status.enabled
+    ? "Disabled"
+    : status.commissioned
+      ? "Linked to a controller"
+      : status.running
+        ? "Running — ready to pair"
+        : "Enabled, but not running";
+  const stateClass = !status.enabled
+    ? "matter-state-off"
+    : status.running
+      ? "matter-state-on"
+      : "matter-state-warn";
+
+  const deviceSummary = status.enabled
+    ? `${status.deviceCount ?? 0} device${status.deviceCount === 1 ? "" : "s"} exposed${
+        status.skippedCount ? ` · ${status.skippedCount} unsupported` : ""
+      }`
+    : "Turn on to expose your WeMo devices";
+
+  $matterContent.innerHTML = `
+    <div class="matter-hero">
+      <div class="matter-hero-text">
+        <div class="matter-state ${stateClass}">
+          <span class="status-dot ${status.running ? "status-dot-connected" : "status-dot-disconnected"}"></span>
+          ${escapeHtml(stateLabel)}
+        </div>
+        <p class="matter-hero-sub">${escapeHtml(deviceSummary)}</p>
+      </div>
+      <label class="matter-switch">
+        <input type="checkbox" id="matter-toggle" ${status.enabled ? "checked" : ""} ${busy ? "disabled" : ""}>
+        <span class="matter-switch-track"><span class="matter-switch-thumb"></span></span>
+      </label>
+    </div>
+
+    ${
+      status.error
+        ? `<div class="matter-alert matter-alert-error">
+             <strong>Matter failed to start</strong>
+             <p>${escapeHtml(status.error)}</p>
+           </div>`
+        : ""
+    }
+
+    ${renderMatterPairingSection(status, pairing)}
+
+    ${renderMatterDevicesSection(status, busy)}
+
+    <div class="matter-alert matter-alert-info">
+      <strong>Google Home needs a one-time registration</strong>
+      <p>
+        Google only pairs uncertified Matter devices that are registered in the
+        Google Home Developer Console. If Google Home finds Open Wemo but stops with
+        “Couldn't find device”, this is why.
+      </p>
+      <ol class="matter-steps">
+        <li>Open the <a href="${GOOGLE_CONSOLE_URL}" target="_blank" rel="noopener">Google Home Developer Console</a> and create a project.</li>
+        <li>Add a <strong>Matter</strong> integration with Vendor ID <code>${escapeHtml(identity.vendorIdHex ?? "0xFFF1")}</code> and Product ID <code>${escapeHtml(identity.productIdHex ?? "0x8001")}</code>.</li>
+        <li>Use the same Google account in the Google Home app, then scan the code above.</li>
+      </ol>
+      <p class="matter-muted">Apple Home and Alexa pair without this — they only show an “uncertified accessory” warning.</p>
+    </div>
+
+    <details class="matter-details">
+      <summary>Advanced</summary>
+      <div class="matter-details-body">
+        <p class="matter-muted">
+          Change these only to match a different integration in the Google Home Developer Console.
+          Saving clears the existing pairing.
+        </p>
+        <div class="matter-id-row">
+          <label class="matter-field">
+            <span>Vendor ID</span>
+            <input type="text" id="matter-vendor-id" value="${escapeHtml(identity.vendorIdHex ?? "0xFFF1")}" spellcheck="false">
+          </label>
+          <label class="matter-field">
+            <span>Product ID</span>
+            <input type="text" id="matter-product-id" value="${escapeHtml(identity.productIdHex ?? "0x8001")}" spellcheck="false">
+          </label>
+        </div>
+        <div class="matter-actions">
+          <button class="btn" id="matter-save-identity" ${busy ? "disabled" : ""}>Save IDs</button>
+          <button class="btn btn-danger" id="matter-reset" ${busy ? "disabled" : ""}>Reset pairing</button>
+        </div>
+        <p class="matter-muted">
+          Bridge listens on UDP port ${escapeHtml(status.port ?? 5540)}. Phone and computer must be on the
+          same network with client isolation off. Nest Matter hub required for Google Home control.
+          On/off is on the Google Home <em>tile</em>, not the device settings page.
+        </p>
+        ${renderMatterKindOverrides(status, busy)}
+      </div>
+    </details>
+  `;
+
+  attachMatterListeners();
+}
+
+/**
+ * Human label for a Matter kind.
+ */
+function matterKindLabel(kind) {
+  switch (kind) {
+    case "plug":
+      return "Plug (on/off)";
+    case "light":
+      return "Light (on/off)";
+    case "skip":
+      return "Skipped";
+    default:
+      return String(kind ?? "—");
+  }
+}
+
+/**
+ * Lists each WeMo device with its auto Matter kind.
+ */
+function renderMatterDevicesSection(status, busy) {
+  const devices = Array.isArray(status.devices) ? status.devices : [];
+  if (devices.length === 0) {
+    return `
+      <div class="matter-alert matter-alert-muted">
+        <p>No saved WeMo devices yet. Add devices in Open Wemo, then they appear here automatically as Plug or Light.</p>
+      </div>
+    `;
+  }
+
+  const rows = devices
+    .map((device) => {
+      const needsPicker = device.wemoType === "Unknown" || device.source === "override";
+      const badgeClass =
+        device.matterKind === "skip"
+          ? "matter-kind-skip"
+          : device.matterKind === "light"
+            ? "matter-kind-light"
+            : "matter-kind-plug";
+      const sourceNote =
+        device.source === "override"
+          ? " · override"
+          : device.wemoType === "Unknown"
+            ? " · default"
+            : "";
+
+      return `
+        <div class="matter-device-row" data-device-id="${escapeHtml(device.id)}">
+          <div class="matter-device-info">
+            <div class="matter-device-name">${escapeHtml(device.name)}</div>
+            <div class="matter-device-meta">
+              WeMo ${escapeHtml(device.wemoType)}
+              ${device.exposed ? " · exposed" : ""}
+            </div>
+          </div>
+          <span class="matter-kind-badge ${badgeClass}">
+            ${escapeHtml(matterKindLabel(device.matterKind))}${escapeHtml(sourceNote)}
+          </span>
+          ${
+            needsPicker
+              ? `<label class="matter-kind-select">
+                   <span class="sr-only">Matter type for ${escapeHtml(device.name)}</span>
+                   <select data-matter-kind="${escapeHtml(device.id)}" ${busy ? "disabled" : ""}>
+                     <option value="plug" ${device.matterKind === "plug" ? "selected" : ""}>Plug (on/off)</option>
+                     <option value="light" ${device.matterKind === "light" ? "selected" : ""}>Light (on/off)</option>
+                     <option value="skip" ${device.matterKind === "skip" ? "selected" : ""}>Skip</option>
+                     ${
+                       device.source === "override"
+                         ? `<option value="__auto__">Use automatic</option>`
+                         : ""
+                     }
+                   </select>
+                 </label>`
+              : ""
+          }
+        </div>
+      `;
+    })
+    .join("");
+
+  return `
+    <div class="matter-devices">
+      <div class="matter-devices-title">Devices</div>
+      <p class="matter-muted">Types are detected automatically from each WeMo. Google Home shows on/off on the home tile (not the settings page).</p>
+      ${rows}
+    </div>
+  `;
+}
+
+/**
+ * Advanced: change Matter kind for any device.
+ */
+function renderMatterKindOverrides(status, busy) {
+  const devices = Array.isArray(status.devices) ? status.devices : [];
+  if (devices.length === 0) return "";
+
+  const rows = devices
+    .map((device) => {
+      const selected = device.source === "override" ? device.matterKind : "__auto__";
+      return `
+        <label class="matter-field matter-kind-override-row">
+          <span>${escapeHtml(device.name)}</span>
+          <select data-matter-kind-advanced="${escapeHtml(device.id)}" ${busy ? "disabled" : ""}>
+            <option value="__auto__" ${selected === "__auto__" ? "selected" : ""}>
+              Automatic (${escapeHtml(matterKindLabel(device.autoKind))})
+            </option>
+            <option value="plug" ${selected === "plug" ? "selected" : ""}>Plug (on/off)</option>
+            <option value="light" ${selected === "light" ? "selected" : ""}>Light (on/off)</option>
+            <option value="skip" ${selected === "skip" ? "selected" : ""}>Skip</option>
+          </select>
+        </label>
+      `;
+    })
+    .join("");
+
+  return `
+    <div class="matter-kind-overrides">
+      <p class="matter-muted" style="margin-top: var(--spacing-md)">
+        Change type only if Google Home has no on/off control after pairing. You may need to remove the device
+        from Google Home and pair again.
+      </p>
+      ${rows}
+    </div>
+  `;
+}
+
+/**
+ * Renders the QR / setup code block.
+ */
+function renderMatterPairingSection(status, pairing) {
+  if (!status.enabled) {
+    return `
+      <div class="matter-alert matter-alert-muted">
+        <p>Turn on the switch above to advertise Open Wemo as a Matter bridge on your network.</p>
+      </div>
+    `;
+  }
+
+  if (status.commissioned) {
+    return `
+      <div class="matter-alert matter-alert-success">
+        <strong>Already paired</strong>
+        <p>
+          Open Wemo is linked to a Matter controller. Your devices should be in the Google Home app.
+          To pair with a different home, remove “Open Wemo” there and use <em>Reset pairing</em> below.
+        </p>
+      </div>
+    `;
+  }
+
+  if (!pairing) {
+    return `
+      <div class="matter-alert matter-alert-warn">
+        <p>Waiting for the Matter bridge to come online. This usually takes a few seconds.</p>
+        <div class="matter-actions">
+          <button class="btn" id="matter-refresh">Refresh</button>
+        </div>
+      </div>
+    `;
+  }
+
+  return `
+    <div class="matter-pair">
+      <p class="matter-pair-intro">
+        In the Google Home app: <strong>Devices → Add → Matter-enabled device</strong>, then scan this code.
+      </p>
+      <div class="qr-code-container matter-qr" id="matter-qr"></div>
+      <p class="matter-muted">Or enter the setup code manually</p>
+      <div class="matter-code" id="matter-code">${escapeHtml(pairing.manualPairingCode)}</div>
+      <div class="matter-actions">
+        <button class="btn" id="matter-copy-code">Copy setup code</button>
+        <button class="btn" id="matter-refresh">Refresh</button>
+      </div>
+    </div>
+  `;
+}
+
+/**
+ * Draws the Matter pairing QR code.
+ */
+function renderMatterQr(payload) {
+  const container = document.getElementById("matter-qr");
+  if (!container) return;
+
+  try {
+    if (typeof qrcode === "undefined") {
+      throw new Error("QR library not loaded");
+    }
+    const qr = qrcode(0, "M");
+    qr.addData(payload);
+    qr.make();
+
+    const img = document.createElement("img");
+    img.src = qr.createDataURL(6, 0);
+    img.alt = "Matter pairing QR code";
+    container.innerHTML = "";
+    container.appendChild(img);
+  } catch (error) {
+    console.error("[App] Failed to render Matter QR:", error);
+    container.innerHTML = `<div class="qr-code-error"><p class="text-muted">${escapeHtml(payload)}</p></div>`;
+  }
+}
+
+/**
+ * Wires up controls inside the Matter panel.
+ */
+function attachMatterListeners() {
+  const pairing = matterState.status?.pairing;
+  if (pairing?.qrPairingCode) {
+    renderMatterQr(pairing.qrPairingCode);
+  }
+
+  document.getElementById("matter-toggle")?.addEventListener("change", handleMatterToggle);
+  document.getElementById("matter-refresh")?.addEventListener("click", loadMatterStatus);
+  document.getElementById("matter-reset")?.addEventListener("click", handleMatterReset);
+  document
+    .getElementById("matter-save-identity")
+    ?.addEventListener("click", handleMatterIdentitySave);
+  document.getElementById("matter-copy-code")?.addEventListener("click", () => {
+    const code = matterState.status?.pairing?.manualPairingCode;
+    if (!code) return;
+    navigator.clipboard
+      ?.writeText(code)
+      .then(() => showToast("Setup code copied", "success"))
+      .catch(() => showToast("Could not copy setup code", "error"));
+  });
+
+  for (const select of document.querySelectorAll(
+    "[data-matter-kind], [data-matter-kind-advanced]"
+  )) {
+    select.addEventListener("change", handleMatterKindChange);
+  }
+}
+
+function handleMatterKindChange(event) {
+  const select = event.target;
+  const deviceId =
+    select.getAttribute("data-matter-kind") || select.getAttribute("data-matter-kind-advanced");
+  if (!deviceId) return;
+
+  const value = select.value;
+  const kind = value === "__auto__" ? null : value;
+
+  runMatterAction(
+    () => api.setMatterDeviceKind(deviceId, kind),
+    "Updating device type...",
+    kind ? "Device type updated" : "Using automatic type"
+  );
+}
+
+/**
+ * Runs a Matter mutation with busy state and error reporting.
+ */
+async function runMatterAction(action, pendingMessage, successMessage) {
+  matterState.busy = true;
+  renderMatterPanel();
+  showToast(pendingMessage, "info");
+
+  try {
+    matterState.status = await action();
+    showToast(successMessage, "success");
+  } catch (error) {
+    showToast(error.message || "Matter request failed", "error");
+    try {
+      matterState.status = await api.getMatterStatus();
+    } catch {
+      // keep previous status
+    }
+  } finally {
+    matterState.busy = false;
+    renderMatterPanel();
+    refreshMatterBadge();
+  }
+}
+
+function handleMatterToggle(event) {
+  const enable = event.target.checked;
+  runMatterAction(
+    () => (enable ? api.enableMatter() : api.disableMatter()),
+    enable ? "Starting Matter bridge..." : "Stopping Matter bridge...",
+    enable ? "Matter bridge enabled" : "Matter bridge disabled"
+  );
+}
+
+function handleMatterReset() {
+  const confirmed = window.confirm(
+    "Clear the Matter pairing? Remove “Open Wemo” from Google Home first, then pair again."
+  );
+  if (!confirmed) return;
+
+  runMatterAction(() => api.resetMatterPairing(), "Resetting pairing...", "Pairing reset");
+}
+
+function handleMatterIdentitySave() {
+  const vendorId = document.getElementById("matter-vendor-id")?.value?.trim();
+  const productId = document.getElementById("matter-product-id")?.value?.trim();
+
+  if (!vendorId || !productId) {
+    showToast("Vendor ID and Product ID are required", "error");
+    return;
+  }
+
+  const confirmed = window.confirm(
+    "Changing the vendor/product ID clears the current pairing. Continue?"
+  );
+  if (!confirmed) return;
+
+  runMatterAction(
+    () => api.setMatterIdentity(vendorId, productId),
+    "Updating Matter identity...",
+    "Matter identity updated"
+  );
 }
 
 // ============================================

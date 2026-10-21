@@ -1,29 +1,13 @@
 /**
  * Device CRUD API Routes
  *
- * Endpoints for managing saved devices.
+ * Thin wrappers over DeviceService.
  */
 
 import { Hono } from "hono";
-import { getDatabase } from "../../db";
-import { WemoDeviceClient } from "../../wemo/device";
-import { getDeviceByAddress } from "../../wemo/discovery";
-import { InsightDeviceClient, convertToPowerData, supportsInsight } from "../../wemo/insight";
-import {
-  isKeepAliveEnabled,
-  markManualOff,
-  markManualOn,
-  setKeepAliveEnabled,
-} from "../../wemo/keepalive";
-import { fetchRulesDb, parseAllRulesFromDb } from "../../wemo/rules";
-import { clearDeviceRules } from "../../wemo/scheduler";
-import type { SavedDevice, WemoDeviceType } from "../../wemo/types";
-import {
-  DeviceNotFoundError,
-  DeviceOfflineError,
-  InsightNotSupportedError,
-  ValidationError,
-} from "../errors";
+import { getDeviceService } from "../../device-service";
+import type { WemoDeviceType } from "../../wemo/types";
+import { ValidationError } from "../errors";
 
 /**
  * Device routes.
@@ -31,128 +15,21 @@ import {
 export const deviceRoutes = new Hono();
 
 /**
- * Helper to get a saved device by ID, throwing if not found.
- */
-function requireDevice(id: string): SavedDevice {
-  const db = getDatabase();
-  const device = db.getDeviceById(id);
-  if (!device) {
-    throw new DeviceNotFoundError(id);
-  }
-  return device;
-}
-
-/**
- * Helper to get a WemoDevice client from a SavedDevice.
- * Returns the client if device is reachable, throws otherwise.
- */
-async function getDeviceClient(device: SavedDevice): Promise<WemoDeviceClient> {
-  const wemoDevice = await getDeviceByAddress(device.host, device.port);
-  if (!wemoDevice) {
-    throw new DeviceOfflineError(device.id, "Device not reachable");
-  }
-  return new WemoDeviceClient(wemoDevice);
-}
-
-/**
- * Helper to get an Insight client from a SavedDevice.
- * Returns the client if device is reachable and supports Insight.
- */
-async function getInsightClient(device: SavedDevice): Promise<InsightDeviceClient> {
-  const wemoDevice = await getDeviceByAddress(device.host, device.port);
-  if (!wemoDevice) {
-    throw new DeviceOfflineError(device.id, "Device not reachable");
-  }
-  if (!supportsInsight(wemoDevice)) {
-    throw new InsightNotSupportedError(device.id);
-  }
-  return new InsightDeviceClient(wemoDevice);
-}
-
-/** Device state result type */
-type DeviceStateResult = {
-  isOnline: boolean;
-  state?: number;
-  error?: string;
-};
-
-/**
- * Wraps a promise with a timeout.
- */
-function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
-  return Promise.race([
-    promise,
-    new Promise<T>((resolve) => setTimeout(() => resolve(fallback), ms)),
-  ]);
-}
-
-/**
- * Helper to get device state safely with timeout.
- */
-async function getDeviceState(device: SavedDevice): Promise<DeviceStateResult> {
-  const offlineResult: DeviceStateResult = {
-    isOnline: false,
-    error: "Device not reachable (timeout)",
-  };
-
-  try {
-    // Wrap the entire operation in a 6-second timeout
-    return await withTimeout<DeviceStateResult>(
-      (async (): Promise<DeviceStateResult> => {
-        const client = await getDeviceClient(device);
-        const binaryState = await client.getBinaryState();
-        return { isOnline: true, state: binaryState };
-      })(),
-      6000,
-      offlineResult
-    );
-  } catch (error) {
-    return {
-      isOnline: false,
-      error: error instanceof Error ? error.message : "Unknown error",
-    };
-  }
-}
-
-/**
  * GET /api/devices
- *
- * Lists all saved devices with optional state polling.
- *
- * Query Parameters:
- * - includeState: Whether to poll current state (default: false, slower)
  */
 deviceRoutes.get("/", async (c) => {
   const includeState = c.req.query("includeState") === "true";
-  const db = getDatabase();
-  const devices = db.getAllDevices();
-
-  if (!includeState) {
-    return c.json({ devices });
-  }
-
-  // Poll state for each device (parallel)
-  const devicesWithState = await Promise.all(
-    devices.map(async (device) => {
-      const status = await getDeviceState(device);
-      return { ...device, ...status };
-    })
-  );
-
-  return c.json({ devices: devicesWithState });
+  const devices = await getDeviceService().listDevicesWithState(includeState);
+  return c.json({ devices });
 });
 
 /**
  * GET /api/devices/:id
- *
- * Gets a single device by ID with current state.
  */
 deviceRoutes.get("/:id", async (c) => {
-  const device = requireDevice(c.req.param("id"));
-
-  // Get current state
-  const status = await getDeviceState(device);
-
+  const svc = getDeviceService();
+  const device = svc.requireDevice(c.req.param("id"));
+  const status = await svc.getState(device.id);
   return c.json({
     device: { ...device, ...status },
   });
@@ -160,17 +37,6 @@ deviceRoutes.get("/:id", async (c) => {
 
 /**
  * POST /api/devices
- *
- * Adds or updates a device.
- *
- * Body:
- * {
- *   id?: string,      // Optional, will be generated if not provided
- *   name: string,
- *   host: string,
- *   port?: number,    // Default: 49153
- *   deviceType?: WemoDeviceType  // Default: "Switch"
- * }
  */
 deviceRoutes.post("/", async (c) => {
   const body = await c.req.json<{
@@ -181,130 +47,30 @@ deviceRoutes.post("/", async (c) => {
     deviceType?: WemoDeviceType;
   }>();
 
-  const missingFields: string[] = [];
-  if (!body.name) missingFields.push("name");
-  if (!body.host) missingFields.push("host");
-
-  if (missingFields.length > 0) {
-    throw new ValidationError(
-      `Missing required fields: ${missingFields.join(", ")}`,
-      missingFields
-    );
-  }
-
-  // Validate host is a valid IP address or hostname
-  const ipv4Regex = /^(\d{1,3}\.){3}\d{1,3}$/;
-  const hostnameRegex =
-    /^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?)*$/;
-
-  if (!ipv4Regex.test(body.host) && !hostnameRegex.test(body.host)) {
-    throw new ValidationError("Invalid host: must be a valid IP address or hostname", ["host"]);
-  }
-
-  // Additional IPv4 validation: each octet must be 0-255
-  if (ipv4Regex.test(body.host)) {
-    const octets = body.host.split(".").map(Number);
-    if (octets.some((octet) => octet < 0 || octet > 255)) {
-      throw new ValidationError("Invalid IP address: octets must be 0-255", ["host"]);
-    }
-  }
-
-  // Validate port is in valid range
-  if (body.port !== undefined) {
-    if (!Number.isInteger(body.port) || body.port < 1 || body.port > 65535) {
-      throw new ValidationError("Invalid port: must be an integer between 1 and 65535", ["port"]);
-    }
-  }
-
-  const db = getDatabase();
-  const now = new Date().toISOString();
-
-  // Try to discover the device to get its real ID
-  let deviceId = body.id;
-  let deviceType = body.deviceType ?? ("Switch" as WemoDeviceType);
-
-  if (!deviceId) {
-    try {
-      const discovered = await getDeviceByAddress(body.host, body.port ?? 49153);
-      if (discovered) {
-        deviceId = discovered.id;
-        deviceType = discovered.deviceType;
-      }
-    } catch {
-      // Ignore discovery errors, use provided or generated ID
-    }
-  }
-
-  // Generate ID if still not set
-  if (!deviceId) {
-    deviceId = `manual:${body.host}:${body.port ?? 49153}`;
-  }
-
-  const device: SavedDevice = {
-    id: deviceId,
-    name: body.name,
-    deviceType,
-    host: body.host,
-    port: body.port ?? 49153,
-    createdAt: now,
-    updatedAt: now,
-  };
-
-  db.saveDevice(device);
-
-  return c.json({ device, created: true }, 201);
+  const { device, created } = await getDeviceService().saveDevice(body);
+  return c.json({ device, created }, 201);
 });
 
 /**
  * PATCH /api/devices/:id
- *
- * Updates device properties.
- *
- * Body:
- * {
- *   name?: string,
- *   host?: string,
- *   port?: number
- * }
  */
 deviceRoutes.patch("/:id", async (c) => {
-  const existing = requireDevice(c.req.param("id"));
-
   const body = await c.req.json<{
     name?: string;
     host?: string;
     port?: number;
   }>();
 
-  const db = getDatabase();
-  const updated: SavedDevice = {
-    ...existing,
-    name: body.name ?? existing.name,
-    host: body.host ?? existing.host,
-    port: body.port ?? existing.port,
-    updatedAt: new Date().toISOString(),
-  };
-
-  db.saveDevice(updated);
-
-  return c.json({ device: updated });
+  const device = getDeviceService().updateDevice(c.req.param("id"), body);
+  return c.json({ device });
 });
 
 /**
  * DELETE /api/devices/:id
- *
- * Removes a device from the database.
  */
 deviceRoutes.delete("/:id", async (c) => {
   const id = c.req.param("id");
-
-  // Verify device exists first
-  requireDevice(id);
-
-  const db = getDatabase();
-  db.deleteDevice(id);
-  clearDeviceRules(id);
-
+  getDeviceService().deleteDevice(id);
   return c.json({ deleted: true, id });
 });
 
@@ -312,207 +78,62 @@ deviceRoutes.delete("/:id", async (c) => {
 // Device Control Endpoints
 // =============================================================================
 
-/**
- * GET /api/devices/:id/state
- *
- * Gets the current state of a device (lighter than full GET /:id).
- */
 deviceRoutes.get("/:id/state", async (c) => {
-  const device = requireDevice(c.req.param("id"));
-  const client = await getDeviceClient(device);
-  const state = await client.getBinaryState();
-
-  return c.json({
-    id: device.id,
-    state,
-    isOn: state === 1,
-    isStandby: state === 8,
-  });
+  const result = await getDeviceService().getBinaryState(c.req.param("id"));
+  return c.json(result);
 });
 
-/**
- * POST /api/devices/:id/on
- *
- * Turns the device on.
- */
 deviceRoutes.post("/:id/on", async (c) => {
-  const device = requireDevice(c.req.param("id"));
-  const client = await getDeviceClient(device);
-  await client.turnOn();
-  markManualOn(device.id);
-  const newState = await client.getBinaryState();
-
-  return c.json({
-    id: device.id,
-    action: "on",
-    state: newState,
-    isOn: newState === 1,
-  });
+  const result = await getDeviceService().setOn(c.req.param("id"), "api");
+  return c.json(result);
 });
 
-/**
- * POST /api/devices/:id/off
- *
- * Turns the device off.
- */
 deviceRoutes.post("/:id/off", async (c) => {
-  const device = requireDevice(c.req.param("id"));
-  const client = await getDeviceClient(device);
-  await client.turnOff();
-  markManualOff(device.id);
-  const newState = await client.getBinaryState();
-
-  return c.json({
-    id: device.id,
-    action: "off",
-    state: newState,
-    isOn: newState === 1,
-  });
+  const result = await getDeviceService().setOff(c.req.param("id"), "api");
+  return c.json(result);
 });
 
-/**
- * POST /api/devices/:id/toggle
- *
- * Toggles the device state.
- */
 deviceRoutes.post("/:id/toggle", async (c) => {
-  const device = requireDevice(c.req.param("id"));
-  const client = await getDeviceClient(device);
-  const { binaryState } = await client.toggle();
-
-  if (binaryState === 1) {
-    markManualOn(device.id);
-  } else {
-    markManualOff(device.id);
-  }
-
-  return c.json({
-    id: device.id,
-    action: "toggle",
-    state: binaryState,
-    isOn: binaryState === 1,
-  });
+  const result = await getDeviceService().toggle(c.req.param("id"), "api");
+  return c.json(result);
 });
 
-/**
- * GET /api/devices/:id/insight
- *
- * Gets power monitoring data for Insight devices.
- */
 deviceRoutes.get("/:id/insight", async (c) => {
-  const device = requireDevice(c.req.param("id"));
-  const client = await getInsightClient(device);
-  const powerData = await client.getPowerData();
-  const rawParams = await client.getInsightParams();
-
-  return c.json({
-    id: device.id,
-    power: powerData,
-    raw: rawParams,
-  });
+  const result = await getDeviceService().getInsight(c.req.param("id"));
+  return c.json(result);
 });
 
 deviceRoutes.get("/:id/threshold", async (c) => {
-  const device = requireDevice(c.req.param("id"));
-  const client = await getInsightClient(device);
-  const thresholdMilliwatts = await client.getPowerThreshold();
-  return c.json({
-    id: device.id,
-    thresholdWatts: thresholdMilliwatts / 1000,
-    thresholdMilliwatts,
-  });
+  const result = await getDeviceService().getThreshold(c.req.param("id"));
+  return c.json(result);
 });
 
 deviceRoutes.put("/:id/threshold", async (c) => {
-  const device = requireDevice(c.req.param("id"));
   const body = await c.req.json<{ watts?: unknown }>();
-
-  if (
-    typeof body.watts !== "number" ||
-    !Number.isFinite(body.watts) ||
-    body.watts < 0 ||
-    body.watts > 50
-  ) {
-    throw new ValidationError("Invalid watts: must be a number between 0 and 50", ["watts"]);
-  }
-
-  const client = await getInsightClient(device);
-  const milliwatts = Math.round(body.watts * 1000);
-  await client.setPowerThreshold(milliwatts);
-
-  return c.json({
-    id: device.id,
-    thresholdWatts: milliwatts / 1000,
-    thresholdMilliwatts: milliwatts,
-  });
+  const result = await getDeviceService().setThreshold(c.req.param("id"), body.watts as number);
+  return c.json(result);
 });
 
 deviceRoutes.post("/:id/threshold/reset", async (c) => {
-  const device = requireDevice(c.req.param("id"));
-  const client = await getInsightClient(device);
-  await client.resetPowerThreshold();
-  const confirmedMilliwatts = await client.getPowerThreshold();
-  return c.json({
-    id: device.id,
-    thresholdWatts: confirmedMilliwatts / 1000,
-    thresholdMilliwatts: confirmedMilliwatts,
-  });
+  const result = await getDeviceService().resetThreshold(c.req.param("id"));
+  return c.json(result);
 });
 
 // =============================================================================
-// Keep-Alive (LED / Low-Power Device Support)
+// Keep-Alive
 // =============================================================================
 
 deviceRoutes.get("/:id/keepalive", (c) => {
-  const device = requireDevice(c.req.param("id"));
-  return c.json({
-    id: device.id,
-    enabled: isKeepAliveEnabled(device.id),
-  });
+  return c.json(getDeviceService().getKeepAlive(c.req.param("id")));
 });
 
 deviceRoutes.put("/:id/keepalive", async (c) => {
-  const device = requireDevice(c.req.param("id"));
   const body = await c.req.json<{ enabled?: unknown }>();
-
   if (typeof body.enabled !== "boolean") {
     throw new ValidationError("Invalid enabled: must be a boolean", ["enabled"]);
   }
-
-  setKeepAliveEnabled(device.id, body.enabled);
-
-  if (device.deviceType === "Insight") {
-    try {
-      const client = await getInsightClient(device);
-      const autoThresholdWatts = body.enabled ? 0 : 8;
-      const displayThresholdMilliwatts = body.enabled ? 1 : 8000;
-      await Promise.all([
-        client.setAutoPowerThreshold(autoThresholdWatts),
-        client.setPowerThreshold(displayThresholdMilliwatts),
-      ]);
-
-      if (body.enabled) {
-        const state = await client.getBinaryState();
-        if (state === 0 || state === 8) {
-          markManualOff(device.id);
-        }
-      }
-
-      console.log(
-        `[KeepAlive] Set auto threshold to ${autoThresholdWatts}W, display threshold to ${displayThresholdMilliwatts}mW for "${device.name}"`
-      );
-    } catch (error) {
-      console.error(
-        `[KeepAlive] Failed to set power thresholds for "${device.name}":`,
-        error instanceof Error ? error.message : error
-      );
-    }
-  }
-
-  return c.json({
-    id: device.id,
-    enabled: body.enabled,
-  });
+  const result = await getDeviceService().setKeepAlive(c.req.param("id"), body.enabled);
+  return c.json(result);
 });
 
 // =============================================================================
@@ -520,42 +141,6 @@ deviceRoutes.put("/:id/keepalive", async (c) => {
 // =============================================================================
 
 deviceRoutes.get("/:id/insight/diagnostics", async (c) => {
-  const device = requireDevice(c.req.param("id"));
-  const client = await getInsightClient(device);
-
-  const [insightParams, thresholdMilliwatts, rulesResult] = await Promise.all([
-    client.getInsightParams(),
-    client.getPowerThreshold(),
-    fetchRulesDb(device.host, device.port),
-  ]);
-
-  const powerData = convertToPowerData(insightParams);
-  const allRules = parseAllRulesFromDb(rulesResult.dbBuffer);
-  const nonTimerRules = allRules.filter((r) => r.type !== "Timer");
-
-  const stateLabels: Record<number, string> = { 0: "off", 1: "on", 8: "standby" };
-
-  return c.json({
-    id: device.id,
-    insight: {
-      state: insightParams.state,
-      stateLabel: stateLabels[insightParams.state] ?? "unknown",
-      instantPowerMilliwatts: insightParams.instantPower,
-      instantPowerWatts: insightParams.instantPower / 1000,
-      reportedThresholdMilliwatts: insightParams.standbyThreshold,
-      reportedThresholdWatts: insightParams.standbyThreshold / 1000,
-      power: powerData,
-    },
-    threshold: {
-      milliwatts: thresholdMilliwatts,
-      watts: thresholdMilliwatts / 1000,
-    },
-    rules: {
-      dbVersion: rulesResult.version,
-      totalCount: allRules.length,
-      timerCount: allRules.length - nonTimerRules.length,
-      nonTimerCount: nonTimerRules.length,
-      all: allRules,
-    },
-  });
+  const result = await getDeviceService().getInsightDiagnostics(c.req.param("id"));
+  return c.json(result);
 });

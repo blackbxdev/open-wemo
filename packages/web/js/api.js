@@ -317,6 +317,79 @@ export const api = {
       body: JSON.stringify({ enabled }),
     });
   },
+
+  /**
+   * Get Matter bridge status (Google Home / Apple Home / Alexa).
+   * @returns {Promise<Object>} Status including pairing codes and identity
+   */
+  async getMatterStatus() {
+    return request("/integrations/matter/status");
+  },
+
+  /**
+   * Enable the Matter bridge. Starting the Matter stack can take a few seconds.
+   * @returns {Promise<Object>} Updated status
+   */
+  async enableMatter() {
+    return request("/integrations/matter/enable", {
+      method: "POST",
+      body: "{}",
+      timeout: 30000,
+    });
+  },
+
+  /**
+   * Disable the Matter bridge.
+   * @returns {Promise<Object>} Updated status
+   */
+  async disableMatter() {
+    return request("/integrations/matter/disable", {
+      method: "POST",
+      body: "{}",
+      timeout: 30000,
+    });
+  },
+
+  /**
+   * Clear commissioned Matter fabrics so the bridge can be paired again.
+   * @returns {Promise<Object>} Updated status
+   */
+  async resetMatterPairing() {
+    return request("/integrations/matter/reset", {
+      method: "POST",
+      body: "{}",
+      timeout: 30000,
+    });
+  },
+
+  /**
+   * Set the advertised Matter vendor/product IDs.
+   * Must match the integration registered in the Google Home Developer Console.
+   * @param {string|number} vendorId - e.g. "0xFFF1"
+   * @param {string|number} productId - e.g. "0x8001"
+   * @returns {Promise<Object>} Updated status
+   */
+  async setMatterIdentity(vendorId, productId) {
+    return request("/integrations/matter/identity", {
+      method: "PUT",
+      body: JSON.stringify({ vendorId, productId }),
+      timeout: 30000,
+    });
+  },
+
+  /**
+   * Override or clear the Matter kind for a saved device.
+   * @param {string} id - Device ID
+   * @param {"plug"|"light"|"skip"|null} kind - Matter kind, or null to clear override
+   * @returns {Promise<Object>} Updated status
+   */
+  async setMatterDeviceKind(id, kind) {
+    return request(`/integrations/matter/devices/${encodeURIComponent(id)}/kind`, {
+      method: "PUT",
+      body: JSON.stringify({ kind }),
+      timeout: 30000,
+    });
+  },
 };
 
 export default api;

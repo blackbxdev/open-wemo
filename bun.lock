@@ -12,8 +12,10 @@
     },
     "packages/bridge": {
       "name": "@open-wemo/bridge",
-      "version": "0.2.1",
+      "version": "0.4.1",
       "dependencies": {
+        "@matter/main": "^0.17.7",
+        "@matter/nodejs": "^0.17.7",
         "fast-xml-parser": "^5.3.3",
         "fflate": "^0.8.2",
         "hono": "^4.11.4",
@@ -30,7 +32,7 @@
     },
     "packages/web": {
       "name": "@open-wemo/web",
-      "version": "0.2.0",
+      "version": "0.4.1",
     },
   },
   "packages": {
@@ -51,6 +53,24 @@
     "@biomejs/cli-win32-arm64": ["@biomejs/cli-win32-arm64@1.9.4", "", { "os": "win32", "cpu": "arm64" }, "sha512-tlbhLk+WXZmgwoIKwHIHEBZUwxml7bRJgk0X2sPyNR3S93cdRq6XulAZRQJ17FYGGzWne0fgrXBKpl7l4M87Hg=="],
 
     "@biomejs/cli-win32-x64": ["@biomejs/cli-win32-x64@1.9.4", "", { "os": "win32", "cpu": "x64" }, "sha512-8Y5wMhVIPaWe6jw2H+KlEm4wP/f7EW3810ZLmDlrEEy5KvBsb9ECEfu/kMWD484ijfQ8+nIi0giMgu9g1UAuuA=="],
+
+    "@matter/general": ["@matter/general@0.17.7", "", { "dependencies": { "@noble/curves": "^2.2.0" } }, "sha512-1k1px59FraPyge6wuK+1Wf/RyK/FpKoyOL6F8JpNRaMKh0CsIBkqcj6R46no2vkcqe7yzUBIo50x9dKklDJzJQ=="],
+
+    "@matter/main": ["@matter/main@0.17.7", "", { "dependencies": { "@matter/general": "0.17.7", "@matter/model": "0.17.7", "@matter/node": "0.17.7", "@matter/protocol": "0.17.7", "@matter/types": "0.17.7" }, "optionalDependencies": { "@matter/nodejs": "0.17.7" } }, "sha512-3D/n9Q6JiqWdkPI49CRDY76GUHJ1GqlKIZ1YEeQp93khf+MAtzS9ttT98ifuVQUMpK/l5i/xcJRWJtHU28fKBw=="],
+
+    "@matter/model": ["@matter/model@0.17.7", "", { "dependencies": { "@matter/general": "0.17.7" } }, "sha512-e8L/JVt3pG97aYZ/JU5R3dRSv664qR7/3y+B0ySXRbbdOwirL7u4CCPRURDFG+u2yvsGSIh+18uABj6yIcP3CA=="],
+
+    "@matter/node": ["@matter/node@0.17.7", "", { "dependencies": { "@matter/general": "0.17.7", "@matter/model": "0.17.7", "@matter/protocol": "0.17.7", "@matter/types": "0.17.7" } }, "sha512-vqAorFQPQ7aa5Qhpu7iRUALKwuDUazuAiotyUyhjpR7GF6zFCZ90xJwfCWKYhTsTao6Ylr2nGFtEPsbjBXpqzQ=="],
+
+    "@matter/nodejs": ["@matter/nodejs@0.17.7", "", { "dependencies": { "@matter/general": "0.17.7", "@matter/node": "0.17.7", "@matter/protocol": "0.17.7", "@matter/types": "0.17.7" } }, "sha512-9ZByr+p/Bf3ezip6IZ/4DdMLUo3xDdBO82IbTmqsga4aym5NyCdDH6FSGZfWi+sN85+ZmQdxGTJ8h5kr1FKLhQ=="],
+
+    "@matter/protocol": ["@matter/protocol@0.17.7", "", { "dependencies": { "@matter/general": "0.17.7", "@matter/model": "0.17.7", "@matter/types": "0.17.7" } }, "sha512-q9e96VBrrMJFS0PYlTAW2YD7qVzhnqI3U/AvqFAhgd/Czo60DuAsPjttmI+VYijuK1oyho1Bi7BCJGgMjbtPhg=="],
+
+    "@matter/types": ["@matter/types@0.17.7", "", { "dependencies": { "@matter/general": "0.17.7", "@matter/model": "0.17.7" } }, "sha512-NSFAlSyMUkCuYSzwtlOGb1gkmH8uFaZwpTelZY6EdTjhVMDu+meOE/CEHVzQmcAK+x8Mv2hjKlv1qCzUOqj7zQ=="],
+
+    "@noble/curves": ["@noble/curves@2.2.0", "", { "dependencies": { "@noble/hashes": "2.2.0" } }, "sha512-T/BoHgFXirb0ENSPBquzX0rcjXeM6Lo892a2jlYJkqk83LqZx0l1Of7DzlKJ6jkpvMrkHSnAcgb5JegL8SeIkQ=="],
+
+    "@noble/hashes": ["@noble/hashes@2.2.0", "", {}, "sha512-IYqDGiTXab6FniAgnSdZwgWbomxpy9FtYvLKs7wCUs2a8RkITG+DFGO1DM9cr+E3/RgADRpFjrKVaJ1z6sjtEg=="],
 
     "@open-wemo/bridge": ["@open-wemo/bridge@workspace:packages/bridge"],
 

@@ -317,6 +317,21 @@
           <p class="settings-install-hint">Install the app or share with another device</p>
         </div>
         
+        <!-- Smart home integrations -->
+        <div class="settings-group">
+          <label class="settings-label">Smart Home</label>
+          <button class="btn settings-action-btn settings-full-btn" id="settings-matter-btn">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M3 10.5 12 3l9 7.5"/>
+              <path d="M5 9.5V20a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9.5"/>
+              <path d="M10 21v-6h4v6"/>
+            </svg>
+            Google Home &amp; Matter
+            <span class="settings-badge" id="settings-matter-badge">Off</span>
+          </button>
+          <p class="settings-install-hint">Control your WeMo devices with Google Home, Apple Home, or Alexa</p>
+        </div>
+        
         <!-- Divider -->
         <hr class="settings-divider">
         
@@ -446,6 +461,28 @@
           </div>
         </div>
         <p class="qr-modal-url" id="qr-modal-url"></p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Matter / Google Home Modal -->
+  <div id="matter-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="matter-modal-title">
+    <div class="modal-backdrop"></div>
+    <div class="modal-content matter-modal-content">
+      <div class="modal-header">
+        <h2 class="modal-title" id="matter-modal-title">Google Home &amp; Matter</h2>
+        <button class="btn btn-icon modal-close" id="matter-modal-close" aria-label="Close">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M18 6L6 18"/>
+            <path d="M6 6l12 12"/>
+          </svg>
+        </button>
+      </div>
+      <div class="modal-body" id="matter-content">
+        <div class="loading" role="status">
+          <div class="spinner" aria-hidden="true"></div>
+          <p>Loading Matter status...</p>
+        </div>
       </div>
     </div>
   </div>

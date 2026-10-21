@@ -15,6 +15,8 @@ export const MenuItemIds = {
   OPEN_BROWSER: "open-browser",
   SHOW_QR: "show-qr",
   SETUP_DEVICE: "setup-device",
+  LINK_GOOGLE_HOME: "link-google-home",
+  MATTER_TOGGLE: "matter-toggle",
   DISCOVER: "discover",
   START_ON_LOGIN: "start-on-login",
   QUIT: "quit",
@@ -27,6 +29,8 @@ export interface MenuHandlers {
   onOpenBrowser?: () => void;
   onShowQR?: () => void;
   onSetupDevice?: () => void;
+  onLinkGoogleHome?: () => void;
+  onMatterToggle?: (enabled: boolean) => void | Promise<void>;
   onDiscover?: () => Promise<void>;
   onStartOnLoginToggle?: (enabled: boolean) => void;
   onQuit?: () => void;
@@ -35,7 +39,7 @@ export interface MenuHandlers {
 /**
  * Creates the default menu items.
  */
-export function createMenuItems(startOnLogin = false): MenuItem[] {
+export function createMenuItems(startOnLogin = false, matterEnabled = false): MenuItem[] {
   return [
     {
       id: MenuItemIds.OPEN_BROWSER,
@@ -51,6 +55,17 @@ export function createMenuItems(startOnLogin = false): MenuItem[] {
       id: MenuItemIds.SETUP_DEVICE,
       title: "Setup New Device",
       tooltip: "Configure a new WeMo device's WiFi",
+    },
+    {
+      id: MenuItemIds.LINK_GOOGLE_HOME,
+      title: "Link to Google Home",
+      tooltip: "Show Matter pairing QR for Google Home",
+    },
+    {
+      id: MenuItemIds.MATTER_TOGGLE,
+      title: "Matter Bridge",
+      tooltip: "Expose WeMo devices to Google Home via Matter",
+      checked: matterEnabled,
     },
     {
       id: MenuItemIds.DISCOVER,
@@ -97,7 +112,8 @@ export function openInBrowser(url: string): void {
 export function createMenuClickHandler(
   handlers: MenuHandlers,
   getStartOnLogin: () => boolean,
-  setStartOnLogin: (value: boolean) => void
+  setStartOnLogin: (value: boolean) => void,
+  getMatterEnabled: () => boolean = () => false
 ): MenuClickHandler {
   return async (itemId: string) => {
     switch (itemId) {
@@ -112,6 +128,16 @@ export function createMenuClickHandler(
       case MenuItemIds.SETUP_DEVICE:
         handlers.onSetupDevice?.();
         break;
+
+      case MenuItemIds.LINK_GOOGLE_HOME:
+        handlers.onLinkGoogleHome?.();
+        break;
+
+      case MenuItemIds.MATTER_TOGGLE: {
+        const newValue = !getMatterEnabled();
+        await handlers.onMatterToggle?.(newValue);
+        break;
+      }
 
       case MenuItemIds.DISCOVER:
         await handlers.onDiscover?.();

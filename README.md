@@ -75,6 +75,7 @@ Open Wemo consists of two parts that work together:
 | **Automatic Discovery** | Finds all WeMo devices on your network with one click |
 | **Built-in Device Setup** | Configure new WeMo devices' WiFi — no Belkin app needed |
 | **Simple Toggle Control** | Tap to turn devices on or off — instant feedback |
+| **Google Home (Matter)** | Expose switches/plugs to Google Home, Apple Home, or Alexa locally — Settings → Google Home & Matter; setup: [docs/GOOGLE-HOME.md](docs/GOOGLE-HOME.md); how it works: [docs/MATTER.md](docs/MATTER.md) |
 | **Power Monitoring** | See real-time watts and daily kWh for Insight devices |
 | **Works Offline** | App shows last-known states when bridge is unreachable |
 | **Dark & Light Themes** | Choose your preferred appearance, or follow system |

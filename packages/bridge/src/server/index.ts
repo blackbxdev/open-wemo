@@ -21,6 +21,7 @@ import {
 import { toApiError } from "./errors";
 import { deviceRoutes } from "./routes/devices";
 import { discoveryRoutes } from "./routes/discovery";
+import { matterRoutes, renderMatterPage } from "./routes/matter";
 import { setupRoutes } from "./routes/setup";
 import { timerRoutes } from "./routes/timers";
 import { initStaticFiles, isDevMode, staticFileMiddleware } from "./static";
@@ -317,6 +318,10 @@ export function createApp(config: ServerConfig = {}): Hono {
         "GET /api/devices/:id/keepalive",
         "PUT /api/devices/:id/keepalive",
         "GET /api/devices/:id/insight/diagnostics",
+        "GET /api/integrations/matter/status",
+        "POST /api/integrations/matter/enable",
+        "POST /api/integrations/matter/disable",
+        "GET /api/integrations/matter/pairing",
       ],
     });
   });
@@ -326,6 +331,7 @@ export function createApp(config: ServerConfig = {}): Hono {
   app.route("/api/devices/:id/timers", timerRoutes);
   app.route("/api/discover", discoveryRoutes);
   app.route("/api/setup", setupRoutes);
+  app.route("/api/integrations/matter", matterRoutes);
 
   // QR code page for phone setup
   app.get("/qr", async (c) => {
@@ -347,6 +353,12 @@ export function createApp(config: ServerConfig = {}): Hono {
   // Device setup page (for configuring new Wemo devices' WiFi)
   // Debug mode shows diagnostics panel (only in dev)
   app.get("/setup", createSetupRoute(DEFAULT_CONFIG.port, isDevMode()));
+
+  // Matter / Google Home commissioning page
+  app.get("/matter", async (c) => {
+    const html = await renderMatterPage();
+    return c.html(html);
+  });
 
   // API endpoint to save welcome preferences
   app.post("/api/welcome/complete", async (c) => {

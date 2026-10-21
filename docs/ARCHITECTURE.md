@@ -76,9 +76,24 @@ bridge/
 │   │   ├── static.ts        # Static file serving
 │   │   ├── errors.ts        # Error handling
 │   │   └── routes/
-│   │       ├── devices.ts   # Device CRUD + control
+│   │       ├── devices.ts   # Device CRUD + control (via DeviceService)
 │   │       ├── discovery.ts # Network scanning
-│   │       └── timers.ts    # Timer CRUD API endpoints
+│   │       ├── timers.ts    # Timer CRUD API endpoints
+│   │       └── matter.ts    # Matter enable/status/pairing API
+│   │
+│   ├── device-service/      # Shared device boundary for API + integrations
+│   │   ├── index.ts         # DeviceService singleton + lifecycle events
+│   │   ├── types.ts
+│   │   └── events.ts
+│   │
+│   ├── integrations/        # Smart-home integrations
+│   │   ├── index.ts         # IntegrationManager
+│   │   └── matter/          # Matter bridge (Google Home / Apple / Alexa)
+│   │       ├── bridge.ts
+│   │       ├── mapper.ts
+│   │       ├── kinds.ts     # Optional per-device kind overrides
+│   │       ├── storage.ts
+│   │       └── commissioning.ts
 │   │
 │   ├── wemo/                # WeMo protocol implementation
 │   │   ├── types.ts         # Type definitions
@@ -102,6 +117,22 @@ bridge/
 │
 └── assets/                  # Icons and resources
 ```
+
+### Matter / Google Home
+
+When `matter_enabled` is set, the bridge starts an in-process Matter aggregator (via `@matter/main` + `@matter/nodejs`) that exposes saved WeMo on/off devices to controllers such as Google Home. See [GOOGLE-HOME.md](./GOOGLE-HOME.md).
+
+```
+WeMo API (SOAP)
+      ↓
+DeviceService  ←→  REST / PWA
+      ↓
+Matter Bridge  ←→  Google Home (LAN)
+```
+
+Matter persistence uses matter.js's SQLite storage driver rather than the default file driver. The file driver saves each key by writing `<key>.tmp` and renaming it over the live file, which intermittently fails with `EPERM` under Bun on Windows — that aborts commissioning and crashes the Matter environment so it cannot restart in-process. matter.js migrates existing file-based storage on first start.
+
+Resetting pairing calls `ServerNode.erase()` while the node is running, because the node holds its own storage handles; deleting the files from outside fails with `EBUSY` on Windows. The file-deletion path in `matter/storage.ts` is only a fallback for when the bridge is stopped, and defers anything still locked to the next start.
 
 ### `packages/web/` - PWA Frontend
 
@@ -217,9 +248,10 @@ web/
 
 ### Local Network Only
 
-- Bridge binds to local IP, not 0.0.0.0
-- No cloud connectivity required
-- No external API exposure
+- HTTP API binds for LAN access (port 51515)
+- Matter bridge advertises on the LAN (UDP 5540 + mDNS) when enabled
+- No cloud connectivity required for WeMo control or Google Home (Matter)
+- No external API exposure beyond the local network
 
 ### No Authentication (by design)
 

@@ -18,6 +18,8 @@
     "test": "bun test"
   },
   "dependencies": {
+    "@matter/main": "^0.17.7",
+    "@matter/nodejs": "^0.17.7",
     "fast-xml-parser": "^5.3.3",
     "fflate": "^0.8.2",
     "hono": "^4.11.4",

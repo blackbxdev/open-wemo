@@ -953,4 +953,100 @@ const result = await fetch(`${API}/devices/${deviceId}/keepalive`, {
 // Get diagnostics
 const diagnostics = await fetch(`${API}/devices/${deviceId}/insight/diagnostics`)
   .then(r => r.json());
+
+// Matter / Google Home status
+const matter = await fetch(`${API}/integrations/matter/status`).then(r => r.json());
+
+// Enable Matter bridge
+await fetch(`${API}/integrations/matter/enable`, { method: 'POST' });
 ```
+
+## Matter Integration
+
+See [GOOGLE-HOME.md](./GOOGLE-HOME.md) for user setup. API base path: `/api/integrations/matter`.
+
+### Get Status
+
+```http
+GET /api/integrations/matter/status
+```
+
+**Response:**
+```json
+{
+  "enabled": true,
+  "running": true,
+  "commissioned": false,
+  "deviceCount": 3,
+  "skippedCount": 0,
+  "identity": {
+    "vendorId": 65521,
+    "productId": 32769,
+    "vendorIdHex": "0xFFF1",
+    "productIdHex": "0x8001"
+  },
+  "port": 5540,
+  "storagePath": "C:\\Users\\me\\AppData\\Roaming\\open-wemo\\matter",
+  "pairing": {
+    "qrPairingCode": "MT:...",
+    "manualPairingCode": "34970112332",
+    "passcode": 20202021,
+    "discriminator": 3840,
+    "commissioned": false
+  }
+}
+```
+
+### Enable / Disable
+
+```http
+POST /api/integrations/matter/enable
+POST /api/integrations/matter/disable
+```
+
+### Reset Pairing
+
+```http
+POST /api/integrations/matter/reset
+```
+
+Erases commissioned fabrics so the bridge can be paired again. Uses the Matter factory-reset flow while running, so the QR code and setup code stay the same.
+
+### Set Vendor / Product ID
+
+```http
+PUT /api/integrations/matter/identity
+Content-Type: application/json
+
+{
+  "vendorId": "0xFFF1",
+  "productId": "0x8001"
+}
+```
+
+Both fields accept a hex string or a decimal number. The IDs must match the Matter integration registered in the Google Home Developer Console. Changing them clears the existing pairing and changes the QR payload. Returns `400` for values that are not integers in range.
+
+### Set Device Matter Kind
+
+```http
+PUT /api/integrations/matter/devices/:id/kind
+Content-Type: application/json
+
+{
+  "kind": "plug"
+}
+```
+
+`kind` is `"plug"`, `"light"`, `"skip"`, or `null` (clear override and use automatic mapping). Recreates the Matter endpoint when the bridge is running. Controllers may need remove + re-pair to pick up a new type.
+
+`GET /status` includes a `devices` array: `{ id, name, wemoType, matterKind, autoKind, source, exposed }`.
+
+### Pairing Codes
+
+```http
+GET /api/integrations/matter/pairing
+```
+
+Returns `503` if Matter is not enabled or not running.
+
+Commissioning UI pages: `GET /matter` (standalone) or the **Google Home & Matter** panel in Settings on the PWA.
