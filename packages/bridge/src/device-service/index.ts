@@ -109,8 +109,8 @@ export class DeviceService {
       return await withTimeout<DeviceStateResult>(
         (async (): Promise<DeviceStateResult> => {
           const client = await this.getDeviceClient(device);
-          const binaryState = await client.getBinaryState();
-          return { isOnline: true, state: binaryState };
+          const { binaryState, brightness } = await client.getState();
+          return { isOnline: true, state: binaryState, brightness };
         })(),
         6000,
         offlineResult
@@ -333,21 +333,54 @@ export class DeviceService {
     return result;
   }
 
+  /** Sets the brightness level (0-100) on a dimmable device. */
+  async setBrightness(
+    deviceId: string,
+    level: number,
+    source: "api" | "matter" = "api"
+  ): Promise<ControlResult> {
+    const device = this.requireDevice(deviceId);
+    if (!Number.isFinite(level) || level < 0 || level > 100) {
+      throw new ValidationError("Invalid brightness: must be a number between 0 and 100", [
+        "brightness",
+      ]);
+    }
+    const client = await this.getDeviceClient(device);
+    await client.setBrightness(level);
+    const state = await client.getState();
+    const result: ControlResult = {
+      id: device.id,
+      action: "brightness",
+      state: state.binaryState,
+      isOn: state.binaryState === 1,
+      brightness: state.brightness,
+    };
+    this.events.emit("stateChanged", {
+      id: device.id,
+      state: state.binaryState,
+      isOn: result.isOn,
+      source,
+    });
+    return result;
+  }
+
   /** Gets binary state (throws if offline). */
   async getBinaryState(deviceId: string): Promise<{
     id: string;
     state: number;
     isOn: boolean;
     isStandby: boolean;
+    brightness?: number;
   }> {
     const device = this.requireDevice(deviceId);
     const client = await this.getDeviceClient(device);
-    const state = await client.getBinaryState();
+    const { binaryState, brightness } = await client.getState();
     return {
       id: device.id,
-      state,
-      isOn: state === 1,
-      isStandby: state === 8,
+      state: binaryState,
+      isOn: binaryState === 1,
+      isStandby: binaryState === 8,
+      brightness,
     };
   }
 

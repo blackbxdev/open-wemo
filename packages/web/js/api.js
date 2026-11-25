@@ -107,7 +107,7 @@ export const api = {
   /**
    * Get device state only (lightweight).
    * @param {string} id - Device ID
-   * @returns {Promise<{id: string, state: number, isOn: boolean}>}
+   * @returns {Promise<{id: string, state: number, isOn: boolean, brightness: number}>}
    */
   async getDeviceState(id) {
     return request(`/devices/${encodeURIComponent(id)}/state`);
@@ -179,6 +179,21 @@ export const api = {
   async toggle(id) {
     return request(`/devices/${encodeURIComponent(id)}/toggle`, {
       method: "POST",
+    });
+  },
+
+  /**
+   * Set device brightness (0-100). Only applies to dimmable devices.
+   * A level of 0 turns the device off; any other level turns it on
+   * at that brightness.
+   * @param {string} id - Device ID
+   * @param {number} brightness - Brightness level (0-100)
+   * @returns {Promise<{id: string, action: string, state: number, isOn: boolean, brightness: number}>}
+   */
+  async setBrightness(id, brightness) {
+    return request(`/devices/${encodeURIComponent(id)}/brightness`, {
+      method: "POST",
+      body: JSON.stringify({ brightness }),
     });
   },
 

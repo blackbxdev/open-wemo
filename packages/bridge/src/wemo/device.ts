@@ -170,12 +170,50 @@ export class WemoDeviceClient {
   }
 
   /**
+   * Gets the brightness level (0-100) for dimmable devices.
+   *
+   * @returns Brightness level, or undefined when the device does not report one
+   */
+  async getBrightness(): Promise<number | undefined> {
+    interface BinaryStateResponse {
+      BinaryState?: unknown;
+      brightness?: unknown;
+    }
+
+    const response = await this.executeWithRetry<BinaryStateResponse>("GetBinaryState");
+    const brightness = extractNumericValue(response.brightness);
+    if (brightness === undefined) {
+      return undefined;
+    }
+    return Math.max(0, Math.min(100, brightness));
+  }
+
+  /**
    * Sets the binary state of the device.
    *
    * @param state - 0 for off, 1 for on
    */
   async setBinaryState(state: 0 | 1): Promise<void> {
     await this.executeWithRetry("SetBinaryState", `<BinaryState>${state}</BinaryState>`);
+  }
+
+  /**
+   * Sets the brightness level (0-100) on dimmable devices.
+   * A level of 0 turns the device off; any other level turns it on
+   * at that brightness.
+   *
+   * @param level - Brightness level from 0 to 100
+   */
+  async setBrightness(level: number): Promise<void> {
+    const clamped = Math.max(0, Math.min(100, Math.round(level)));
+    if (clamped === 0) {
+      await this.setBinaryState(0);
+      return;
+    }
+    await this.executeWithRetry(
+      "SetBinaryState",
+      `<BinaryState>1</BinaryState><brightness>${clamped}</brightness>`
+    );
   }
 
   /**
@@ -190,7 +228,10 @@ export class WemoDeviceClient {
       binaryState,
     };
 
-    // TODO: Add brightness support for dimmer devices
+    const brightness = await this.getBrightness();
+    if (brightness !== undefined) {
+      state.brightness = brightness;
+    }
 
     return state;
   }

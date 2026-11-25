@@ -98,6 +98,32 @@ deviceRoutes.post("/:id/toggle", async (c) => {
   return c.json(result);
 });
 
+/**
+ * POST /api/devices/:id/brightness
+ * Sets the brightness level (0-100) on a dimmable device.
+ * A level of 0 turns the device off; any other level turns it on
+ * at that brightness.
+ */
+deviceRoutes.post("/:id/brightness", async (c) => {
+  const body = await c.req.json<{ brightness?: unknown }>();
+  if (
+    typeof body.brightness !== "number" ||
+    !Number.isFinite(body.brightness) ||
+    body.brightness < 0 ||
+    body.brightness > 100
+  ) {
+    throw new ValidationError("Invalid brightness: must be a number between 0 and 100", [
+      "brightness",
+    ]);
+  }
+  const result = await getDeviceService().setBrightness(
+    c.req.param("id"),
+    Math.round(body.brightness),
+    "api"
+  );
+  return c.json(result);
+});
+
 deviceRoutes.get("/:id/insight", async (c) => {
   const result = await getDeviceService().getInsight(c.req.param("id"));
   return c.json(result);

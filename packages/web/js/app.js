@@ -602,6 +602,34 @@ function renderDeviceCard(device) {
     `
       : "";
 
+  const isDimmable = device.deviceType === "Dimmer" || device.deviceType === "Bulb";
+  const brightnessLevel =
+    typeof device.brightness === "number" ? Math.round(device.brightness) : isOn ? 100 : 0;
+
+  // Brightness slider for dimmable devices
+  const brightnessHtml =
+    isDimmable && !isOffline
+      ? `
+      <div class="brightness-control">
+        <div class="brightness-header">
+          <span class="brightness-label">Brightness</span>
+          <span class="brightness-value" data-brightness-value="${escapeHtml(device.id)}">${brightnessLevel}%</span>
+        </div>
+        <input
+          type="range"
+          min="0"
+          max="100"
+          step="1"
+          value="${brightnessLevel}"
+          class="brightness-slider"
+          style="--fill: ${brightnessLevel}%"
+          data-action="brightness"
+          aria-label="Brightness for ${escapeHtml(device.name)}"
+        >
+      </div>
+    `
+      : "";
+
   const configBtnHtml =
     isInsight && !isOffline
       ? `<button class="config-btn" data-action="config" aria-label="Device settings" aria-expanded="false">
@@ -634,6 +662,7 @@ function renderDeviceCard(device) {
           <span class="toggle-track"></span>
         </label>
       </div>
+      ${brightnessHtml}
       ${powerStatsHtml}
     </div>
   `;
@@ -875,6 +904,12 @@ function attachDeviceListeners() {
     toggle.addEventListener("change", handleToggle);
   }
 
+  // Brightness sliders (dimmable devices)
+  for (const slider of $app.querySelectorAll('[data-action="brightness"]')) {
+    slider.addEventListener("input", handleBrightnessInput);
+    slider.addEventListener("change", handleBrightnessChange);
+  }
+
   for (const timerBtn of $app.querySelectorAll('[data-action="timer"]')) {
     const card = timerBtn.closest("[data-device-id]");
     const isOffline = card?.querySelector(".device-status")?.classList.contains("is-offline");
@@ -949,6 +984,31 @@ async function handleToggle(event) {
     toggle.checked = result.isOn;
     updateDeviceCardState(card, result.state);
 
+    // Sync the brightness slider (toggling on restores the last level)
+    const slider = card.querySelector('[data-action="brightness"]');
+    if (slider) {
+      try {
+        const stateResult = await api.getDeviceState(deviceId);
+        const brightness =
+          typeof stateResult.brightness === "number"
+            ? Math.round(stateResult.brightness)
+            : result.isOn
+              ? 100
+              : 0;
+        slider.value = String(brightness);
+        slider.style.setProperty("--fill", `${brightness}%`);
+        const label = card.querySelector("[data-brightness-value]");
+        if (label) {
+          label.textContent = `${brightness}%`;
+        }
+        if (device) {
+          device.brightness = brightness;
+        }
+      } catch {
+        // Keep the slider's previous value; the next refresh syncs it
+      }
+    }
+
     // Success haptic
     if (navigator.vibrate) {
       navigator.vibrate([10, 50, 10]);
@@ -967,6 +1027,70 @@ async function handleToggle(event) {
     showToast(error.message || "Failed to toggle device", "error");
   } finally {
     toggle.disabled = false;
+  }
+}
+
+/**
+ * Updates the brightness label and slider fill while dragging.
+ */
+function handleBrightnessInput(event) {
+  const slider = event.target;
+  const card = slider.closest("[data-device-id]");
+  const value = Number.parseInt(slider.value, 10);
+  slider.style.setProperty("--fill", `${value}%`);
+  const label = card.querySelector("[data-brightness-value]");
+  if (label) {
+    label.textContent = `${value}%`;
+  }
+}
+
+/**
+ * Commits a brightness change when the slider is released.
+ */
+async function handleBrightnessChange(event) {
+  const slider = event.target;
+  const card = slider.closest("[data-device-id]");
+  const deviceId = card.dataset.deviceId;
+  const value = Number.parseInt(slider.value, 10);
+
+  if (navigator.vibrate) {
+    navigator.vibrate(10);
+  }
+
+  slider.disabled = true;
+
+  try {
+    const result = await api.setBrightness(deviceId, value);
+
+    // Update local state
+    const device = state.devices.find((d) => d.id === deviceId);
+    if (device) {
+      device.state = result.state;
+      device.brightness = result.brightness ?? value;
+      device.isOnline = true;
+    }
+
+    // Sync the toggle and status text with the new state
+    const toggle = card.querySelector('[data-action="toggle"]');
+    if (toggle) {
+      toggle.checked = result.isOn;
+    }
+    updateDeviceCardState(card, result.state);
+  } catch (error) {
+    console.error("[App] Brightness change failed:", error);
+    showToast(error.message || "Failed to set brightness", "error");
+
+    // Revert slider to last known brightness
+    const device = state.devices.find((d) => d.id === deviceId);
+    const lastValue = device && typeof device.brightness === "number" ? device.brightness : 0;
+    slider.value = String(lastValue);
+    slider.style.setProperty("--fill", `${lastValue}%`);
+    const label = card.querySelector("[data-brightness-value]");
+    if (label) {
+      label.textContent = `${lastValue}%`;
+    }
+  } finally {
+    slider.disabled = false;
   }
 }
 
