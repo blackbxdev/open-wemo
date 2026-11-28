@@ -392,17 +392,24 @@ export class DeviceService {
       action: "brightness",
     };
     if (state) {
-      result.state = state.binaryState;
-      result.isOn = state.binaryState === 1;
+      // Report only what was observed. A readback whose BinaryState
+      // was garbage carries no power state (binaryState undefined):
+      // do not report it as off, and do not emit stateChanged for a
+      // state that was never observed. A brightness that did parse is
+      // still observed and is reported on its own.
+      if (state.binaryState !== undefined) {
+        result.state = state.binaryState;
+        result.isOn = state.binaryState === 1;
+        this.events.emit("stateChanged", {
+          id: device.id,
+          state: state.binaryState,
+          isOn: state.binaryState === 1,
+          source,
+        });
+      }
       if (state.brightness !== undefined) {
         result.brightness = state.brightness;
       }
-      this.events.emit("stateChanged", {
-        id: device.id,
-        state: state.binaryState,
-        isOn: state.binaryState === 1,
-        source,
-      });
     }
     return result;
   }
@@ -410,21 +417,32 @@ export class DeviceService {
   /** Gets binary state (throws if offline). */
   async getBinaryState(deviceId: string): Promise<{
     id: string;
-    state: number;
-    isOn: boolean;
-    isStandby: boolean;
+    state?: number;
+    isOn?: boolean;
+    isStandby?: boolean;
     brightness?: number;
   }> {
     const device = this.requireDevice(deviceId);
     const client = await this.getDeviceClient(device);
     const { binaryState, brightness } = await client.getState();
-    return {
-      id: device.id,
-      state: binaryState,
-      isOn: binaryState === 1,
-      isStandby: binaryState === 8,
-      brightness,
-    };
+    // Unknown (not off) for a garbage BinaryState: omit state/isOn/
+    // isStandby rather than reporting the device as off.
+    const result: {
+      id: string;
+      state?: number;
+      isOn?: boolean;
+      isStandby?: boolean;
+      brightness?: number;
+    } = { id: device.id };
+    if (binaryState !== undefined) {
+      result.state = binaryState;
+      result.isOn = binaryState === 1;
+      result.isStandby = binaryState === 8;
+    }
+    if (brightness !== undefined) {
+      result.brightness = brightness;
+    }
+    return result;
   }
 
   /** Insight power data. */

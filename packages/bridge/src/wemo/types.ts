@@ -84,8 +84,11 @@ export interface DeviceState {
    * - 0 = off
    * - 1 = on
    * - 8 = on (standby) for Insight devices
+   * Undefined when the device's reply carried no parseable BinaryState:
+   * the state is unknown, not off. Callers must not report unknown as
+   * off or emit stateChanged for it.
    */
-  binaryState: 0 | 1 | 8;
+  binaryState?: 0 | 1 | 8;
   /**
    * Brightness level for dimmable devices (0-100).
    * Only applicable for standalone Dimmer devices. A Link-bridge Bulb

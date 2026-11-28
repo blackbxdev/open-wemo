@@ -312,7 +312,7 @@ describe("WemoDeviceClient brightness", () => {
       expect(state.brightness).toBe(45);
     });
 
-    test("treats a missing BinaryState as off", async () => {
+    test("treats a missing BinaryState as unknown, not off", async () => {
       nextResponseXml = `<?xml version="1.0"?>
         <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">
           <s:Body>
@@ -322,11 +322,11 @@ describe("WemoDeviceClient brightness", () => {
           </s:Body>
         </s:Envelope>`;
       const state = await client.getState();
-      expect(state.binaryState).toBe(0);
+      expect(state.binaryState).toBeUndefined();
       expect(state.brightness).toBe(45);
     });
 
-    test("treats a garbage BinaryState as off", async () => {
+    test("treats a garbage BinaryState as unknown, not off", async () => {
       nextResponseXml = `<?xml version="1.0"?>
         <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">
           <s:Body>
@@ -337,7 +337,7 @@ describe("WemoDeviceClient brightness", () => {
           </s:Body>
         </s:Envelope>`;
       const state = await client.getState();
-      expect(state.binaryState).toBe(0);
+      expect(state.binaryState).toBeUndefined();
       expect(state.brightness).toBe(45);
     });
 

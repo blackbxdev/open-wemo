@@ -78,6 +78,10 @@ const GET_DIFFERENT = soapResponse(
   "GetBinaryState",
   "<BinaryState>1</BinaryState><brightness>99</brightness>"
 );
+const GET_GARBAGE_STATE = soapResponse(
+  "GetBinaryState",
+  "<BinaryState>garbage</BinaryState><brightness>60</brightness>"
+);
 
 // ── Service setup ──────────────────────────────────────────────────────────
 
@@ -215,6 +219,25 @@ describe("DeviceService.setBrightness", () => {
     expect(result.brightness).toBeUndefined();
     expect(result.state).toBeUndefined();
     expect(result.isOn).toBeUndefined();
+    expect(events).toHaveLength(0);
+    unsub();
+  });
+
+  test("garbage readback reports unknown power state and emits no stateChanged", async () => {
+    const service = makeService(WemoDeviceType.Dimmer, WemoDeviceType.Dimmer);
+    const { events, unsub } = captureStateChanged(service);
+    // The Set reply carries no state, so the service reads back — and
+    // the readback's BinaryState is garbage. The power state was never
+    // observed, so it is reported as unknown (not off) and no event is
+    // emitted; the brightness that did parse is still observed.
+    nextSetResponseXml = SET_EMPTY;
+    nextGetResponseXml = GET_GARBAGE_STATE;
+
+    const result = await service.setBrightness("dimmer-1", 60);
+
+    expect(result.state).toBeUndefined();
+    expect(result.isOn).toBeUndefined();
+    expect(result.brightness).toBe(60);
     expect(events).toHaveLength(0);
     unsub();
   });

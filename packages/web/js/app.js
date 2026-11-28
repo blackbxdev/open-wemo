@@ -1161,7 +1161,7 @@ function handleBrightnessEnd(event) {
 async function commitBrightness(deviceId, value, slider, card) {
   brightnessActivity.beginWrite(deviceId);
   slider.disabled = true;
-  let timedOut = false;
+  let unknownOutcome = false;
 
   try {
     const result = await api.setBrightness(deviceId, value);
@@ -1200,13 +1200,15 @@ async function commitBrightness(deviceId, value, slider, card) {
       updateDeviceCardState(card, result.state);
     }
   } catch (error) {
-    if (error && error.code === "TIMEOUT") {
-      // A timeout is an unknown outcome, not a failed write: the bridge
-      // may still be confirming it (its readback can take up to ~30s).
-      // Leave the slider at the requested value; the next poll
-      // reconciles it. Only a definite failure reverts.
-      timedOut = true;
-      console.log("[App] Brightness write timed out; leaving slider at requested value");
+    if (error && (error.code === "TIMEOUT" || error.code === "NETWORK_ERROR")) {
+      // A timeout or a dropped connection is an unknown outcome, not a
+      // failed write: the bridge may still be confirming it (its
+      // readback can take up to ~30s), or the request may have reached
+      // it before the connection dropped. Leave the slider at the
+      // requested value; the next poll reconciles it. Only a definite
+      // failure (e.g. a 400 from the bridge) reverts.
+      unknownOutcome = true;
+      console.log("[App] Brightness write outcome unknown; leaving slider at requested value");
     } else {
       console.error("[App] Brightness change failed:", error);
       showToast(error.message || "Failed to set brightness", "error");
@@ -1225,11 +1227,11 @@ async function commitBrightness(deviceId, value, slider, card) {
     }
   } finally {
     slider.disabled = false;
-    // On a timeout the held render is discarded, not flushed: its
-    // data predates the write, and flushing it would revert the
+    // On an unknown outcome the held render is discarded, not flushed:
+    // its data predates the write, and flushing it would revert the
     // slider to the pre-write value even though the write's outcome
     // is unknown. The next poll fetches fresh data and reconciles.
-    brightnessActivity.endWrite(deviceId, { flush: !timedOut });
+    brightnessActivity.endWrite(deviceId, { flush: !unknownOutcome });
   }
 }
 
@@ -1759,14 +1761,27 @@ async function loadDevices() {
       dropped = true;
       return;
     }
-    state.devices = result.devices;
+    // A poll that could not read a device's power state reports no state
+    // (unknown), not off. Do not let that clobber the last known state:
+    // keep the previous power state for a device whose poll result has
+    // none, so the card keeps showing what was last observed.
+    const previous = new Map(state.devices.map((d) => [d.id, d]));
+    state.devices = result.devices.map((d) => {
+      if (d.state === undefined) {
+        const prev = previous.get(d.id);
+        if (prev && typeof prev.state === "number") {
+          return { ...d, state: prev.state };
+        }
+      }
+      return d;
+    });
     state.error = null;
     state.isOffline = false;
     state.networkMode = NetworkMode.NORMAL;
     state.lastUpdated = Date.now();
 
     // Cache devices to localStorage
-    cacheDevices(result.devices);
+    cacheDevices(state.devices);
   } catch (error) {
     console.error("[App] Failed to load devices:", error);
     state.error = error;

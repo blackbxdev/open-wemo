@@ -36,20 +36,6 @@ function parseBinaryStateField(value: unknown): number | undefined {
 }
 
 /**
- * Normalizes a parsed BinaryState value to 0, 1, or 8.
- * A missing or garbage value is off (0): that was the behavior before
- * the first review round changed it to on, and toggle() picks its
- * command from this value, so assuming "on" for an unrecognized value
- * would send the wrong command. Only 0, 1, and 8 are real states.
- */
-function normalizeBinaryState(value: unknown): 0 | 1 | 8 {
-  const state = parseBinaryStateField(value);
-  if (state === 1) return 1;
-  if (state === 8) return 8;
-  return 0;
-}
-
-/**
  * Parses the state a SetBinaryState response carries, when it carries
  * one. The response fields are the device's confirmed state — the
  * pyWeMo recordings show both BinaryState and brightness — but a
@@ -312,9 +298,14 @@ export class WemoDeviceClient {
     // state.
     const response = await this.executeWithRetry<BinaryStateResponse>("GetBinaryState");
 
-    const state: DeviceState = {
-      binaryState: normalizeBinaryState(response.BinaryState),
-    };
+    // Unknown (not off) for a missing or garbage BinaryState: reporting
+    // it as off would fabricate a state the device never reported, and
+    // the service would emit stateChanged for that made-up "off".
+    const parsed = parseBinaryStateField(response.BinaryState);
+    const state: DeviceState = {};
+    if (parsed === 0 || parsed === 1 || parsed === 8) {
+      state.binaryState = parsed;
+    }
 
     const brightness = extractNumericValue(response.brightness);
     if (brightness !== undefined) {
@@ -352,7 +343,7 @@ export class WemoDeviceClient {
    *
    * @returns The new state after toggling
    */
-  async toggle(): Promise<DeviceState> {
+  async toggle(): Promise<{ binaryState: 0 | 1 }> {
     const currentState = await this.getBinaryState();
     // Refuse when the current state is unknown: guessing off would
     // send "on" to a device that is already on. The read is fresh
