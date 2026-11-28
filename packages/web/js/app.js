@@ -3,6 +3,7 @@
  */
 
 import { api } from "./api.js";
+import { BrightnessActivity } from "./brightness-activity.js";
 import { log } from "./logger.js";
 // Note: PWA-based setup mode has been disabled due to browser CORS limitations.
 // Device setup must now be done from the bridge (tray menu → "Setup New Device").
@@ -507,6 +508,14 @@ function renderDevices() {
     return; // Keep showing initial loading
   }
 
+  // Guard poll APPLICATION, not poll start: a poll already in flight
+  // when a drag or write begins still lands here, and rebuilding the
+  // cards would detach the slider mid-drag (or re-enable it mid-write).
+  // Hold it; it is applied when the last active device clears.
+  if (!brightnessActivity.mayRender()) {
+    return;
+  }
+
   for (const card of $app.querySelectorAll(".device-card[data-device-id]")) {
     if (card.querySelector(".timer-panel")) {
       const deviceId = card.dataset.deviceId;
@@ -544,18 +553,6 @@ function renderDevices() {
     return;
   }
 
-  // Preserve in-flight brightness values: a poll must not yank the slider
-  // out from under a drag or an unconfirmed write.
-  const pendingBrightness = new Map();
-  for (const deviceId of brightnessActive) {
-    const slider = $app.querySelector(
-      `.device-card[data-device-id="${deviceId}"] [data-action="brightness"]`
-    );
-    if (slider) {
-      pendingBrightness.set(deviceId, slider.value);
-    }
-  }
-
   $app.innerHTML = `
     ${offlineBanner}
     <div class="device-list">
@@ -565,23 +562,6 @@ function renderDevices() {
 
   // Attach event listeners
   attachDeviceListeners();
-
-  // Restore any brightness values that were being dragged or written
-  // when this render happened.
-  for (const [deviceId, value] of pendingBrightness) {
-    const slider = $app.querySelector(
-      `.device-card[data-device-id="${deviceId}"] [data-action="brightness"]`
-    );
-    if (slider) {
-      slider.value = value;
-      slider.style.setProperty("--fill", `${value}%`);
-      const card = slider.closest("[data-device-id]");
-      const label = card?.querySelector("[data-brightness-value]");
-      if (label) {
-        label.textContent = `${value}%`;
-      }
-    }
-  }
 
   // Fetch power stats for Insight devices (only if online)
   if (!state.isOffline) {
@@ -940,6 +920,11 @@ function attachDeviceListeners() {
   for (const slider of $app.querySelectorAll('[data-action="brightness"]')) {
     slider.addEventListener("input", handleBrightnessInput);
     slider.addEventListener("change", handleBrightnessChange);
+    slider.addEventListener("pointerdown", handleBrightnessStart);
+    slider.addEventListener("focus", handleBrightnessStart);
+    slider.addEventListener("pointerup", handleBrightnessEnd);
+    slider.addEventListener("pointercancel", handleBrightnessEnd);
+    slider.addEventListener("blur", handleBrightnessEnd);
   }
 
   for (const timerBtn of $app.querySelectorAll('[data-action="timer"]')) {
@@ -1063,10 +1048,14 @@ async function handleToggle(event) {
 }
 
 // Brightness writes are serialized per device: a slow write can't be
-// overtaken by the next one. Devices in this set are being dragged or
-// have a write in flight, so a poll must not replace their card.
+// overtaken by the next one.
 const brightnessQueues = new Map();
-const brightnessActive = new Set();
+// Devices being dragged or with a write in flight. A poll that lands
+// while one is active is held, not applied: applying it would rebuild
+// the card and detach the slider mid-drag (or re-enable it mid-write).
+// See brightness-activity.js; the tick's start guard alone cannot
+// catch a poll that is already in flight.
+const brightnessActivity = new BrightnessActivity(() => renderDevices());
 
 /**
  * Updates the brightness label and slider fill while dragging.
@@ -1078,7 +1067,7 @@ function handleBrightnessInput(event) {
 
   // Mark the device active so a poll doesn't re-render (and destroy)
   // the slider mid-drag.
-  brightnessActive.add(deviceId);
+  brightnessActivity.markActive(deviceId);
 
   const value = Number.parseInt(slider.value, 10);
   slider.style.setProperty("--fill", `${value}%`);
@@ -1099,6 +1088,11 @@ async function handleBrightnessChange(event) {
   const deviceId = card.dataset.deviceId;
   const value = Number.parseInt(slider.value, 10);
 
+  // The input handler normally marks the device active, but a change
+  // can arrive without a preceding input event (keyboard, assistive
+  // tech); make sure the write owns the device either way.
+  brightnessActivity.markActive(deviceId);
+
   if (navigator.vibrate) {
     navigator.vibrate(10);
   }
@@ -1112,12 +1106,60 @@ async function handleBrightnessChange(event) {
 }
 
 /**
+ * Records the slider value when an interaction starts (pointerdown for
+ * mouse/touch, focus for keyboard), so the end handler can tell whether
+ * the value moved.
+ */
+function handleBrightnessStart(event) {
+  event.target._dragStartValue = event.target.value;
+}
+
+/**
+ * Releases a device when an interaction ends without a write. A change
+ * event — and therefore a write — follows only when the value moved
+ * from where the interaction started. When the user drags back to that
+ * value, no change fires and nothing would ever clear the device, so
+ * polls would stay held forever; release it here. When the value moved,
+ * the change handler owns the device until the write confirms.
+ */
+function handleBrightnessEnd(event) {
+  const slider = event.target;
+  const card = slider.closest("[data-device-id]");
+  const deviceId = card.dataset.deviceId;
+  const startValue = slider._dragStartValue;
+  slider._dragStartValue = undefined;
+  const device = state.devices.find((d) => d.id === deviceId);
+  // The value the interaction started from (pointer/focus), or the
+  // value the slider was rendered with (no start was recorded).
+  const unchangedValue =
+    startValue !== undefined
+      ? Number.parseInt(startValue, 10)
+      : device
+        ? typeof device.brightness === "number"
+          ? Math.round(device.brightness)
+          : device.state === 1
+            ? 100
+            : 0
+        : undefined;
+  // Never release a device with a write in flight: a deferred poll
+  // can have updated the confirmed state to the requested value,
+  // which would make the value look unchanged here.
+  if (
+    unchangedValue !== undefined &&
+    Number.parseInt(slider.value, 10) === unchangedValue &&
+    !brightnessActivity.isWriting(deviceId)
+  ) {
+    brightnessActivity.clearActive(deviceId);
+  }
+}
+
+/**
  * Sends one brightness write and reconciles the slider on the confirmed
  * state from the server, not the requested value: if the device reports
  * 53% after a request for 60%, the slider shows 53%.
  */
 async function commitBrightness(deviceId, value, slider, card) {
-  brightnessActive.add(deviceId);
+  brightnessActivity.beginWrite(deviceId);
   slider.disabled = true;
 
   try {
@@ -1149,23 +1191,31 @@ async function commitBrightness(deviceId, value, slider, card) {
     }
     updateDeviceCardState(card, result.state);
   } catch (error) {
-    console.error("[App] Brightness change failed:", error);
-    showToast(error.message || "Failed to set brightness", "error");
+    if (error && error.code === "TIMEOUT") {
+      // A timeout is an unknown outcome, not a failed write: the bridge
+      // may still be confirming it (its readback can take up to ~30s).
+      // Leave the slider at the requested value; the next poll
+      // reconciles it. Only a definite failure reverts.
+      console.log("[App] Brightness write timed out; leaving slider at requested value");
+    } else {
+      console.error("[App] Brightness change failed:", error);
+      showToast(error.message || "Failed to set brightness", "error");
 
-    // Revert only when the write itself failed. A write the server
-    // acknowledged keeps the slider where it is; the next refresh
-    // syncs it from the device.
-    const device = state.devices.find((d) => d.id === deviceId);
-    const lastValue = device && typeof device.brightness === "number" ? device.brightness : 0;
-    slider.value = String(lastValue);
-    slider.style.setProperty("--fill", `${lastValue}%`);
-    const label = card.querySelector("[data-brightness-value]");
-    if (label) {
-      label.textContent = `${lastValue}%`;
+      // Revert only when the write itself failed. A write the server
+      // acknowledged keeps the slider where it is; the next refresh
+      // syncs it from the device.
+      const device = state.devices.find((d) => d.id === deviceId);
+      const lastValue = device && typeof device.brightness === "number" ? device.brightness : 0;
+      slider.value = String(lastValue);
+      slider.style.setProperty("--fill", `${lastValue}%`);
+      const label = card.querySelector("[data-brightness-value]");
+      if (label) {
+        label.textContent = `${lastValue}%`;
+      }
     }
   } finally {
     slider.disabled = false;
-    brightnessActive.delete(deviceId);
+    brightnessActivity.endWrite(deviceId);
   }
 }
 
@@ -1769,7 +1819,7 @@ function startAutoRefresh() {
       log("[App] Auto-refresh skipped (UI active)");
       return;
     }
-    if (brightnessActive.size > 0) {
+    if (brightnessActivity.size > 0) {
       log("[App] Auto-refresh skipped (brightness interaction active)");
       return;
     }

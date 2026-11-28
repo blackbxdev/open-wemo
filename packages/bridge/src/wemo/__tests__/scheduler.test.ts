@@ -16,12 +16,44 @@ import { DAYS, TimerAction, type TimerRule } from "../types";
 
 // ── Mocks ──────────────────────────────────────────────────────────────────────
 
-const mockSoapRequest = mock(() =>
-  Promise.resolve({ success: true as const, data: {} as Record<string, unknown> })
-);
-mock.module("../soap", () => ({
-  soapRequest: mockSoapRequest,
-}));
+// The scheduler fires rules with soapRequest, which POSTs to the device.
+// Stub fetch (the transport) instead of mocking ../soap: the real SOAP
+// envelope building and parsing run, and no process-global mock.module
+// override leaks into other test files (device.test.ts and soap.test.ts
+// need the real soap module and broke under `bun test --randomize`).
+type FetchCall = { url: string; body: string; soapAction: string | undefined };
+const fetchCalls: FetchCall[] = [];
+const originalFetch = globalThis.fetch;
+let fetchRejects: Error | null = null;
+
+const SET_RESPONSE_XML =
+  '<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"><s:Body>' +
+  '<u:SetBinaryStateResponse xmlns:u="urn:Belkin:service:basicevent:1">' +
+  "<BinaryState>1</BinaryState></u:SetBinaryStateResponse></s:Body></s:Envelope>";
+
+function stubFetch() {
+  globalThis.fetch = (async (
+    url: unknown,
+    init?: { body?: unknown; headers?: Record<string, string> }
+  ) => {
+    const body = String(init?.body ?? "");
+    fetchCalls.push({ url: String(url), body, soapAction: init?.headers?.SOAPACTION });
+    if (fetchRejects) {
+      throw fetchRejects;
+    }
+    return { ok: true, status: 200, text: async () => SET_RESPONSE_XML } as Response;
+  }) as typeof fetch;
+}
+
+beforeEach(() => {
+  fetchCalls.length = 0;
+  fetchRejects = null;
+  stubFetch();
+});
+
+afterEach(() => {
+  globalThis.fetch = originalFetch;
+});
 
 const mockGetDeviceById = mock(() => ({
   id: "device-1",
@@ -227,7 +259,6 @@ describe("tick", () => {
   beforeEach(async () => {
     const mod: { _resetForTesting?: () => void } = await import("../scheduler");
     mod._resetForTesting?.();
-    mockSoapRequest.mockClear();
     mockGetDeviceById.mockClear();
     await tick();
   });
@@ -246,11 +277,10 @@ describe("tick", () => {
 
     await tick();
 
-    for (const call of mockSoapRequest.mock.calls as unknown[][]) {
-      expect(call[2]).toBe("/upnp/control/basicevent1");
-      expect(call[3]).toBe("urn:Belkin:service:basicevent:1");
-      expect(call[4]).toBe("SetBinaryState");
-      expect(call[5]).toMatch(/^<BinaryState>[01]<\/BinaryState>$/);
+    for (const call of fetchCalls) {
+      expect(call.url).toBe("http://192.168.1.50:49153/upnp/control/basicevent1");
+      expect(call.soapAction).toBe('"urn:Belkin:service:basicevent:1#SetBinaryState"');
+      expect(call.body).toMatch(/<BinaryState>[01]<\/BinaryState>/);
     }
   });
 
@@ -272,7 +302,7 @@ describe("tick", () => {
   });
 
   test("catches and logs SOAP failures without throwing", async () => {
-    mockSoapRequest.mockRejectedValue(new Error("SOAP timeout"));
+    fetchRejects = new Error("SOAP timeout");
 
     await expect(tick()).resolves.toBeUndefined();
   });
@@ -292,21 +322,21 @@ describe("tick", () => {
 
   test("does not re-fire a rule+day+action that already fired (dedup)", async () => {
     await tick();
-    const firstCallCount = mockSoapRequest.mock.calls.length;
+    const firstCallCount = fetchCalls.length;
 
     await tick();
-    const secondCallCount = mockSoapRequest.mock.calls.length;
+    const secondCallCount = fetchCalls.length;
 
     expect(secondCallCount).toBe(firstCallCount);
   });
 
   test("clears fired-today set when day-of-year changes", async () => {
     await tick();
-    const firstCallCount = mockSoapRequest.mock.calls.length;
+    const firstCallCount = fetchCalls.length;
 
     // After a day boundary, previously-fired rules should fire again
     await tick();
-    expect(mockSoapRequest.mock.calls.length).toBeGreaterThanOrEqual(firstCallCount);
+    expect(fetchCalls.length).toBeGreaterThanOrEqual(firstCallCount);
   });
 });
 
@@ -319,7 +349,6 @@ describe("lifecycle", () => {
     const mod: { _resetForTesting?: () => void } = await import("../scheduler");
     mod._resetForTesting?.();
     mockFetchTimers.mockClear();
-    mockSoapRequest.mockClear();
     await tick();
   });
 
@@ -338,10 +367,10 @@ describe("lifecycle", () => {
     stopFn = startScheduler();
     stopFn.stop();
 
-    mockSoapRequest.mockClear();
+    fetchCalls.length = 0;
     await new Promise((resolve) => setTimeout(resolve, 200));
 
-    expect(mockSoapRequest).not.toHaveBeenCalled();
+    expect(fetchCalls).toHaveLength(0);
   });
 
   test("loadDeviceRules(deviceId, host, port) fetches via fetchTimers() and caches rules", async () => {
@@ -366,9 +395,9 @@ describe("lifecycle", () => {
     await loadDeviceRules("device-1", "192.168.1.50", 49153);
     clearDeviceRules("device-1");
 
-    mockSoapRequest.mockClear();
+    fetchCalls.length = 0;
     await tick();
 
-    expect(mockSoapRequest).not.toHaveBeenCalled();
+    expect(fetchCalls).toHaveLength(0);
   });
 });

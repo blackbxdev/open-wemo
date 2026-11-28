@@ -357,32 +357,40 @@ export class DeviceService {
         ["brightness"]
       );
     }
-    const effectiveLevel = await client.setBrightness(level);
-    // Confirm the new state from the device, but don't fail an
-    // acknowledged write when the readback fails: the light already
-    // changed, so report the level that was sent instead of erroring.
-    let state: DeviceState;
-    try {
-      state = await client.getState();
-    } catch {
-      state = {
-        binaryState: effectiveLevel > 0 ? 1 : 0,
-        brightness: effectiveLevel,
-      };
+    const { level: effectiveLevel, state: setState } = await client.setBrightness(level);
+    // The SetBinaryState response carries the device's confirmed state
+    // (BinaryState + brightness in the pyWeMo recordings), so use it
+    // when present and skip the readback. Only read back when the Set
+    // reply carried no state at all.
+    let state: DeviceState | undefined = setState;
+    if (!state) {
+      try {
+        state = await client.getState();
+      } catch {
+        state = undefined;
+      }
     }
+    // The write was acknowledged even when its resulting state could
+    // not be observed, so the API still reports the sent level for the
+    // PWA (it shows the requested value and the next poll reconciles)
+    // instead of erroring. But stateChanged is emitted only for
+    // observed state: Matter trusts that event as the device's actual
+    // state, and a level-implied state is not one.
     const result: ControlResult = {
       id: device.id,
       action: "brightness",
-      state: state.binaryState,
-      isOn: state.binaryState === 1,
-      brightness: state.brightness,
+      state: state?.binaryState ?? (effectiveLevel > 0 ? 1 : 0),
+      isOn: state ? state.binaryState === 1 : effectiveLevel > 0,
+      brightness: state?.brightness ?? effectiveLevel,
     };
-    this.events.emit("stateChanged", {
-      id: device.id,
-      state: state.binaryState,
-      isOn: result.isOn,
-      source,
-    });
+    if (state) {
+      this.events.emit("stateChanged", {
+        id: device.id,
+        state: state.binaryState,
+        isOn: result.isOn,
+        source,
+      });
+    }
     return result;
   }
 

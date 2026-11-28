@@ -391,7 +391,10 @@ body {
   -webkit-appearance: none;
   appearance: none;
   width: 100%;
-  height: 6px;
+  /* 44px hit area for touch: the visible track stays 6px tall,
+     centered, via background-size/position, so taps within the 44px
+     band around the track register instead of doing nothing. */
+  height: 44px;
   border-radius: var(--radius-full);
   background: linear-gradient(
     to right,
@@ -400,6 +403,9 @@ body {
     var(--color-border) var(--fill, 50%),
     var(--color-border) 100%
   );
+  background-size: 100% 6px;
+  background-position: center;
+  background-repeat: no-repeat;
   outline: none;
   cursor: pointer;
 }

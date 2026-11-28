@@ -149,4 +149,12 @@ describe("extractNumericValue", () => {
   test("returns undefined for an empty string", () => {
     expect(extractNumericValue("")).toBeUndefined();
   });
+
+  test("returns undefined for non-finite values", () => {
+    // "<brightness>Infinity</brightness>" used to parse as 100 (via
+    // the caller's clamp) instead of unknown.
+    expect(extractNumericValue("Infinity")).toBeUndefined();
+    expect(extractNumericValue("-Infinity")).toBeUndefined();
+    expect(extractNumericValue(Number.POSITIVE_INFINITY)).toBeUndefined();
+  });
 });

@@ -9,18 +9,16 @@
  * (pywemo/tests/vcr/tests.ouimeaux_device.test_dimmer).
  */
 
-import { afterEach, beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 
-// bun:test mock.module is process-global: scheduler.test.ts,
-// threshold.test.ts, and threshold-routes.test.ts all mock ../soap, and
-// whichever mock registers last wins for every file loaded after it.
-// This file stubs the transport (fetch) instead, so it re-asserts the
-// real soap module here. A plain re-import of the mocked specifier
-// inside the factory returns the mock, not the original; loading the
-// same file under a query-suffixed specifier makes Bun treat it as a
-// distinct module outside those mocks (verified against Bun 1.4.3).
-const realSoapSpecifier = "../soap.ts?real";
-mock.module("../soap", async () => await import(realSoapSpecifier));
+// This file stubs the transport (fetch), not the soap module, so the
+// real SOAP envelope building, XML parsing, and value extraction run.
+// No test file mocks ../soap anymore: scheduler.test.ts, threshold.test.ts,
+// and threshold-routes.test.ts all stub fetch too, so there is no
+// process-global mock.module override left to leak across files and
+// break this file (or soap.test.ts) under `bun test --randomize`.
+// (A query-suffixed re-import used to re-assert the real module here;
+// it hung the suite at load on Bun 1.3.9 and is gone with the mocks.)
 
 import { WemoDeviceClient } from "../device";
 import { parseXmlResponse } from "../soap";
@@ -52,6 +50,7 @@ beforeAll(async () => {
 type FetchCall = { url: string; body: string; soapAction: string | undefined };
 const fetchCalls: FetchCall[] = [];
 let nextResponseXml = "";
+let nextSetResponseXml = "";
 
 const originalFetch = globalThis.fetch;
 
@@ -66,10 +65,14 @@ function stubFetch() {
       body,
       soapAction: init?.headers?.SOAPACTION,
     });
+    // The Set response is the device's confirmed state; the Get response
+    // is the polled state. Keep them separate so a Set that turns the
+    // device off is not "confirmed" by a stale on-state recording.
+    const isSet = (init?.headers?.SOAPACTION ?? "").includes("SetBinaryState");
     return {
       ok: true,
       status: 200,
-      text: async () => nextResponseXml,
+      text: async () => (isSet ? nextSetResponseXml : nextResponseXml),
     } as Response;
   }) as typeof fetch;
 }
@@ -77,6 +80,7 @@ function stubFetch() {
 beforeEach(() => {
   fetchCalls.length = 0;
   nextResponseXml = rtosGetState;
+  nextSetResponseXml = rtosSetResponse;
   stubFetch();
 });
 
@@ -159,9 +163,44 @@ describe("WemoDeviceClient brightness", () => {
     });
 
     test("returns the effective level sent to the device", async () => {
-      await expect(client.setBrightness(0.4)).resolves.toBe(1);
-      await expect(client.setBrightness(75)).resolves.toBe(75);
-      await expect(client.setBrightness(0)).resolves.toBe(0);
+      await expect(client.setBrightness(0.4)).resolves.toMatchObject({ level: 1 });
+      await expect(client.setBrightness(75)).resolves.toMatchObject({ level: 75 });
+      await expect(client.setBrightness(0)).resolves.toMatchObject({ level: 0 });
+    });
+
+    test("returns the state the Set response carries", async () => {
+      // The stub returns the RTOS v2 Set recording (BinaryState 1,
+      // brightness 45) for the Set call: that is the confirmed state.
+      const result = await client.setBrightness(60);
+      expect(result.level).toBe(60);
+      expect(result.state).toEqual({ binaryState: 1, brightness: 45 });
+    });
+
+    test("returns no state when the Set response carries none", async () => {
+      nextSetResponseXml = `<?xml version="1.0"?>
+        <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">
+          <s:Body>
+            <u:SetBinaryStateResponse xmlns:u="urn:Belkin:service:basicevent:1">
+            </u:SetBinaryStateResponse>
+          </s:Body>
+        </s:Envelope>`;
+      const result = await client.setBrightness(60);
+      expect(result.level).toBe(60);
+      expect(result.state).toBeUndefined();
+    });
+
+    test("level 0 returns the Set response state for the off command", async () => {
+      nextSetResponseXml = `<?xml version="1.0"?>
+        <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">
+          <s:Body>
+            <u:SetBinaryStateResponse xmlns:u="urn:Belkin:service:basicevent:1">
+              <BinaryState>0</BinaryState>
+            </u:SetBinaryStateResponse>
+          </s:Body>
+        </s:Envelope>`;
+      const result = await client.setBrightness(0);
+      expect(result.level).toBe(0);
+      expect(result.state).toEqual({ binaryState: 0 });
     });
 
     test("refuses a plain Switch without sending anything", async () => {
@@ -258,6 +297,66 @@ describe("WemoDeviceClient brightness", () => {
       expect(state.brightness).toBeUndefined();
     });
 
+    test("parses the first field of a compound BinaryState (8|123 = standby)", async () => {
+      nextResponseXml = `<?xml version="1.0"?>
+        <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">
+          <s:Body>
+            <u:GetBinaryStateResponse xmlns:u="urn:Belkin:service:basicevent:1">
+              <BinaryState>8|123</BinaryState>
+              <brightness>45</brightness>
+            </u:GetBinaryStateResponse>
+          </s:Body>
+        </s:Envelope>`;
+      const state = await client.getState();
+      expect(state.binaryState).toBe(8);
+      expect(state.brightness).toBe(45);
+    });
+
+    test("treats a missing BinaryState as off", async () => {
+      nextResponseXml = `<?xml version="1.0"?>
+        <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">
+          <s:Body>
+            <u:GetBinaryStateResponse xmlns:u="urn:Belkin:service:basicevent:1">
+              <brightness>45</brightness>
+            </u:GetBinaryStateResponse>
+          </s:Body>
+        </s:Envelope>`;
+      const state = await client.getState();
+      expect(state.binaryState).toBe(0);
+      expect(state.brightness).toBe(45);
+    });
+
+    test("treats a garbage BinaryState as off", async () => {
+      nextResponseXml = `<?xml version="1.0"?>
+        <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">
+          <s:Body>
+            <u:GetBinaryStateResponse xmlns:u="urn:Belkin:service:basicevent:1">
+              <BinaryState>garbage</BinaryState>
+              <brightness>45</brightness>
+            </u:GetBinaryStateResponse>
+          </s:Body>
+        </s:Envelope>`;
+      const state = await client.getState();
+      expect(state.binaryState).toBe(0);
+      expect(state.brightness).toBe(45);
+    });
+
+    test("treats an Infinity brightness as unknown, not 100", async () => {
+      nextResponseXml = `<?xml version="1.0"?>
+        <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">
+          <s:Body>
+            <u:GetBinaryStateResponse xmlns:u="urn:Belkin:service:basicevent:1">
+              <BinaryState>1</BinaryState>
+              <brightness>Infinity</brightness>
+            </u:GetBinaryStateResponse>
+          </s:Body>
+        </s:Envelope>`;
+      const state = await client.getState();
+      expect(state.binaryState).toBe(1);
+      expect(state.brightness).toBeUndefined();
+      await expect(client.getBrightness()).resolves.toBeUndefined();
+    });
+
     test("keeps a valid power state when brightness is malformed", async () => {
       nextResponseXml = `<?xml version="1.0"?>
         <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">
@@ -271,6 +370,23 @@ describe("WemoDeviceClient brightness", () => {
       const state = await client.getState();
       expect(state.binaryState).toBe(1);
       expect(state.brightness).toBeUndefined();
+    });
+  });
+
+  describe("toggle()", () => {
+    test("sends on when the reported state is garbage (garbage reads as off)", async () => {
+      nextResponseXml = `<?xml version="1.0"?>
+        <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">
+          <s:Body>
+            <u:GetBinaryStateResponse xmlns:u="urn:Belkin:service:basicevent:1">
+              <BinaryState>garbage</BinaryState>
+            </u:GetBinaryStateResponse>
+          </s:Body>
+        </s:Envelope>`;
+      const state = await client.toggle();
+      expect(state.binaryState).toBe(1);
+      expect(fetchCalls).toHaveLength(2);
+      expect(fetchCalls[1]?.body).toContain("<BinaryState>1</BinaryState>");
     });
   });
 

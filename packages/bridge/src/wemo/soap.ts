@@ -335,5 +335,8 @@ export function extractNumericValue(value: unknown): number | undefined {
     return undefined;
   }
   const num = Number(text);
-  return Number.isNaN(num) ? undefined : num;
+  // Reject NaN and non-finite values: "<brightness>Infinity</brightness>"
+  // used to parse as 100 (via the clamp in the caller) instead of
+  // unknown, and a non-finite BinaryState would normalize to "on".
+  return Number.isFinite(num) ? num : undefined;
 }
