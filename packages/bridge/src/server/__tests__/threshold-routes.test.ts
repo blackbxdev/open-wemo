@@ -5,16 +5,25 @@
  * on the device routes.
  */
 
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { Hono } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { type SavedDevice, type WemoDevice, WemoDeviceType } from "../../wemo/types";
 
 // ── Mock setup (BEFORE imports) ─────────────────────────────────────────────
 //
-// We mock ../../wemo/soap (not ../../wemo/insight) so the real InsightDeviceClient
-// class is preserved. bun:test mock.module is global — mocking the insight module
-// would break threshold.test.ts which needs the real class with mocked SOAP.
+// The threshold endpoints drive the real InsightDeviceClient, which talks
+// to the device with soapRequest. Stub fetch (the transport) instead of
+// mocking ../../wemo/soap: the real SOAP envelope building, XML parsing,
+// and value extraction run, and no process-global mock.module override
+// leaks into other test files (device.test.ts and soap.test.ts need the
+// real soap module and broke under `bun test --randomize`). The
+// ../../wemo/device mock is gone too — it replaced WemoDeviceClient with
+// a stub class that has no setBrightness/getState, which broke
+// device.test.ts outright when this file loaded first — and the
+// ../../wemo/scheduler mock is gone because importing the real scheduler
+// is side-effect-free (startScheduler is only called explicitly) and
+// the threshold endpoints never delete a device.
 
 const mockGetDeviceById = mock((_id: string): SavedDevice | null => null);
 mock.module("../../db", () => ({
@@ -33,44 +42,43 @@ mock.module("../../wemo/discovery", () => ({
   getDeviceByAddress: mockGetDeviceByAddress,
 }));
 
-mock.module("../../wemo/device", () => ({
-  WemoDeviceClient: class MockWemoDeviceClient {
-    getBinaryState = mock(() => Promise.resolve(1));
-    turnOn = mock(() => Promise.resolve());
-    turnOff = mock(() => Promise.resolve());
-    toggle = mock(() => Promise.resolve({ binaryState: 1 }));
-  },
-}));
+// ── Transport stub ─────────────────────────────────────────────────────────
+type FetchCall = { url: string; body: string; soapAction: string | undefined };
+const fetchCalls: FetchCall[] = [];
+const originalFetch = globalThis.fetch;
+// Inner XML queued for the next fetch call, one entry per call, in order.
+// The stub wraps each entry in the response element matching the
+// requested action, so a test queues just the fields it cares about.
+const queuedInnerXml: string[] = [];
 
-mock.module("../../wemo/scheduler", () => ({
-  clearDeviceRules: () => {},
-}));
+function queueSoapInner(innerXml: string): void {
+  queuedInnerXml.push(innerXml);
+}
 
-const mockSoapRequest = mock(
-  (): Promise<{ success: boolean; data?: Record<string, unknown>; error?: string }> =>
-    Promise.resolve({ success: true, data: {} })
-);
-mock.module("../../wemo/soap", () => ({
-  soapRequest: mockSoapRequest,
-  extractNumericValue: (value: unknown): number => {
-    if (typeof value === "number") return Number.isNaN(value) ? 0 : value;
-    const text =
-      typeof value === "string"
-        ? value
-        : value && typeof value === "object" && "#text" in value
-          ? String((value as { "#text": unknown })["#text"])
-          : "";
-    const num = Number(text);
-    return Number.isNaN(num) ? 0 : num;
-  },
-  extractTextValue: (value: unknown): string => {
-    if (typeof value === "string") return value;
-    if (typeof value === "number") return String(value);
-    if (value && typeof value === "object" && "#text" in value)
-      return String((value as { "#text": unknown })["#text"]);
-    return "";
-  },
-}));
+function stubFetch() {
+  globalThis.fetch = (async (
+    url: unknown,
+    init?: { body?: unknown; headers?: Record<string, string> }
+  ) => {
+    const body = String(init?.body ?? "");
+    const soapAction = init?.headers?.SOAPACTION;
+    fetchCalls.push({ url: String(url), body, soapAction });
+    const action = (soapAction ?? "").replace(/"/g, "").split("#")[1] ?? "";
+    const inner = queuedInnerXml.shift() ?? "";
+    const xml = `<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"><s:Body><u:${action}Response xmlns:u="urn:Belkin:service:insight:1">${inner}</u:${action}Response></s:Body></s:Envelope>`;
+    return { ok: true, status: 200, text: async () => xml } as Response;
+  }) as typeof fetch;
+}
+
+beforeEach(() => {
+  fetchCalls.length = 0;
+  queuedInnerXml.length = 0;
+  stubFetch();
+});
+
+afterEach(() => {
+  globalThis.fetch = originalFetch;
+});
 
 // ── Imports (after mocks) ───────────────────────────────────────────────────
 
@@ -166,15 +174,12 @@ function setupSwitchDevice() {
   mockGetDeviceByAddress.mockResolvedValue(WEMO_SWITCH);
 }
 
-function mockSoapGetThreshold(milliwatts: number) {
-  mockSoapRequest.mockResolvedValueOnce({
-    success: true,
-    data: { PowerThreshold: String(milliwatts) },
-  });
+function queueThresholdResponse(milliwatts: number) {
+  queueSoapInner(`<PowerThreshold>${milliwatts}</PowerThreshold>`);
 }
 
-function mockSoapSuccess() {
-  mockSoapRequest.mockResolvedValueOnce({ success: true, data: {} });
+function queueSoapSuccess() {
+  queueSoapInner("");
 }
 
 // ── Tests ────────────────────────────────────────────────────────────────────
@@ -186,12 +191,11 @@ describe("GET /api/devices/:id/threshold", () => {
     app = createTestApp();
     mockGetDeviceById.mockReset();
     mockGetDeviceByAddress.mockReset();
-    mockSoapRequest.mockReset();
   });
 
   test("returns threshold data for Insight device", async () => {
     setupInsightDevice();
-    mockSoapGetThreshold(8000);
+    queueThresholdResponse(8000);
 
     const res = await app.request("/api/devices/insight-1/threshold");
     const body = (await res.json()) as ThresholdBody;
@@ -206,7 +210,7 @@ describe("GET /api/devices/:id/threshold", () => {
 
   test("thresholdWatts equals thresholdMilliwatts / 1000", async () => {
     setupInsightDevice();
-    mockSoapGetThreshold(3500);
+    queueThresholdResponse(3500);
 
     const res = await app.request("/api/devices/insight-1/threshold");
     const body = (await res.json()) as ThresholdBody;
@@ -245,12 +249,11 @@ describe("PUT /api/devices/:id/threshold", () => {
     app = createTestApp();
     mockGetDeviceById.mockReset();
     mockGetDeviceByAddress.mockReset();
-    mockSoapRequest.mockReset();
   });
 
   test("sets threshold with watts: 5 → sends 5000mW SOAP body", async () => {
     setupInsightDevice();
-    mockSoapSuccess();
+    queueSoapSuccess();
 
     const res = await app.request("/api/devices/insight-1/threshold", {
       method: "PUT",
@@ -265,13 +268,12 @@ describe("PUT /api/devices/:id/threshold", () => {
       thresholdWatts: 5,
       thresholdMilliwatts: 5000,
     });
-    const call = mockSoapRequest.mock.calls[0] as unknown as unknown[];
-    expect(call[5]).toBe("<PowerThreshold>5000</PowerThreshold>");
+    expect(fetchCalls[0]?.body).toContain("<PowerThreshold>5000</PowerThreshold>");
   });
 
   test("handles fractional watts: 0.5 → sends 500mW SOAP body", async () => {
     setupInsightDevice();
-    mockSoapSuccess();
+    queueSoapSuccess();
 
     const res = await app.request("/api/devices/insight-1/threshold", {
       method: "PUT",
@@ -282,8 +284,7 @@ describe("PUT /api/devices/:id/threshold", () => {
 
     expect(res.status).toBe(200);
     expect(body.thresholdMilliwatts).toBe(500);
-    const call = mockSoapRequest.mock.calls[0] as unknown as unknown[];
-    expect(call[5]).toBe("<PowerThreshold>500</PowerThreshold>");
+    expect(fetchCalls[0]?.body).toContain("<PowerThreshold>500</PowerThreshold>");
   });
 
   test("rejects negative watts", async () => {
@@ -397,13 +398,12 @@ describe("POST /api/devices/:id/threshold/reset", () => {
     app = createTestApp();
     mockGetDeviceById.mockReset();
     mockGetDeviceByAddress.mockReset();
-    mockSoapRequest.mockReset();
   });
 
   test("calls ResetPowerThreshold then GetPowerThreshold (confirm-after-reset)", async () => {
     setupInsightDevice();
-    mockSoapSuccess();
-    mockSoapGetThreshold(8000);
+    queueSoapSuccess();
+    queueThresholdResponse(8000);
 
     const res = await app.request("/api/devices/insight-1/threshold/reset", {
       method: "POST",
@@ -411,16 +411,15 @@ describe("POST /api/devices/:id/threshold/reset", () => {
     await res.json();
 
     expect(res.status).toBe(200);
-    expect(mockSoapRequest).toHaveBeenCalledTimes(2);
-    const calls = mockSoapRequest.mock.calls as unknown as unknown[][];
-    expect(calls[0]?.[4]).toBe("ResetPowerThreshold");
-    expect(calls[1]?.[4]).toBe("GetPowerThreshold");
+    expect(fetchCalls).toHaveLength(2);
+    expect(fetchCalls[0]?.soapAction).toBe('"urn:Belkin:service:insight:1#ResetPowerThreshold"');
+    expect(fetchCalls[1]?.soapAction).toBe('"urn:Belkin:service:insight:1#GetPowerThreshold"');
   });
 
   test("returns confirmed threshold value from GetPowerThreshold", async () => {
     setupInsightDevice();
-    mockSoapSuccess();
-    mockSoapGetThreshold(8000);
+    queueSoapSuccess();
+    queueThresholdResponse(8000);
 
     const res = await app.request("/api/devices/insight-1/threshold/reset", {
       method: "POST",

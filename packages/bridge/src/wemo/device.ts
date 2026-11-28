@@ -5,6 +5,7 @@
  */
 
 import { extractNumericValue, extractTextValue, soapRequest } from "./soap";
+import { WemoDeviceType } from "./types";
 import type { DeviceState, WemoDevice, WemoService } from "./types";
 
 /**
@@ -17,6 +18,45 @@ const BASIC_EVENT_SERVICE = "urn:Belkin:service:basicevent:1";
  */
 const DEFAULT_RETRY_COUNT = 2;
 const DEFAULT_RETRY_DELAY = 500;
+
+/** The state a SetBinaryState response carries, when it carries one. */
+interface SetBinaryStateResponse {
+  BinaryState?: unknown;
+  brightness?: unknown;
+}
+
+/**
+ * Parses the first field of a BinaryState value. The field is a compound
+ * status on some devices ("8|123" = standby with extra fields); only
+ * the first field is the power state.
+ */
+function parseBinaryStateField(value: unknown): number | undefined {
+  const first = typeof value === "string" ? value.split("|")[0] : value;
+  return extractNumericValue(first);
+}
+
+/**
+ * Parses the state a SetBinaryState response carries, when it carries
+ * one. The response fields are the device's confirmed state — the
+ * pyWeMo recordings show both BinaryState and brightness — but a
+ * response may carry neither, in which case this returns undefined and
+ * the caller must read the state back instead of guessing it.
+ */
+function parseSetResponseState(response: {
+  BinaryState?: unknown;
+  brightness?: unknown;
+}): DeviceState | undefined {
+  const rawState = parseBinaryStateField(response.BinaryState);
+  if (rawState !== 0 && rawState !== 1 && rawState !== 8) {
+    return undefined;
+  }
+  const state: DeviceState = { binaryState: rawState };
+  const brightness = extractNumericValue(response.brightness);
+  if (brightness !== undefined) {
+    state.brightness = Math.max(0, Math.min(100, brightness));
+  }
+  return state;
+}
 
 /**
  * Error thrown when a device operation fails.
@@ -155,27 +195,90 @@ export class WemoDeviceClient {
    *
    * @returns 0 for off, 1 for on, 8 for standby (Insight devices)
    */
-  async getBinaryState(): Promise<0 | 1 | 8> {
+  async getBinaryState(): Promise<0 | 1 | 8 | undefined> {
     interface BinaryStateResponse {
       BinaryState?: unknown;
     }
 
     const response = await this.executeWithRetry<BinaryStateResponse>("GetBinaryState");
-    const state = extractNumericValue(response.BinaryState);
+    // Undefined (unknown) for a missing or garbage BinaryState, not
+    // off: a caller that acts on the state must not guess. toggle()
+    // refuses on unknown, and a write confirmation reports unknown
+    // instead of claiming a state it did not observe. (getState()
+    // keeps normalizing garbage to off for display and polling.)
+    const state = parseBinaryStateField(response.BinaryState);
+    return state === 0 || state === 1 || state === 8 ? state : undefined;
+  }
 
-    // Normalize to valid values
-    if (state === 0) return 0;
-    if (state === 8) return 8;
-    return 1;
+  /**
+   * Gets the brightness level (0-100) for dimmable devices.
+   *
+   * @returns Brightness level, or undefined when the device does not report one
+   */
+  async getBrightness(): Promise<number | undefined> {
+    interface BinaryStateResponse {
+      BinaryState?: unknown;
+      brightness?: unknown;
+    }
+
+    const response = await this.executeWithRetry<BinaryStateResponse>("GetBinaryState");
+    const brightness = extractNumericValue(response.brightness);
+    if (brightness === undefined) {
+      return undefined;
+    }
+    return Math.max(0, Math.min(100, brightness));
   }
 
   /**
    * Sets the binary state of the device.
    *
    * @param state - 0 for off, 1 for on
+   * @returns The state the Set response carries, if it carries one
    */
-  async setBinaryState(state: 0 | 1): Promise<void> {
-    await this.executeWithRetry("SetBinaryState", `<BinaryState>${state}</BinaryState>`);
+  async setBinaryState(state: 0 | 1): Promise<DeviceState | undefined> {
+    const response = await this.executeWithRetry<SetBinaryStateResponse>(
+      "SetBinaryState",
+      `<BinaryState>${state}</BinaryState>`
+    );
+    return parseSetResponseState(response);
+  }
+
+  /**
+   * Sets the brightness level (0-100) on a standalone dimmer.
+   * A level of 0 turns the device off; any other level turns it on
+   * at that brightness. A nonzero level that rounds to 0 (for example
+   * 0.4) is raised to 1, so it turns the device on instead of off.
+   *
+   * Only standalone Dimmers support this: a plain Switch would merely
+   * toggle on a positive level, and a Link-bridge Bulb needs
+   * SetDeviceStatus (level capability 10008), not SetBinaryState.
+   *
+   * @param level - Brightness level from 0 to 100
+   * @returns The effective level sent to the device (0-100), plus the
+   * state the Set response carries when it carries one — that is the
+   * device's confirmed state, so the caller can use it instead of
+   * reading the state back.
+   */
+  async setBrightness(level: number): Promise<{ level: number; state?: DeviceState }> {
+    if (this.device.deviceType !== WemoDeviceType.Dimmer) {
+      throw new DeviceError(
+        `Device does not support brightness control (type: ${this.device.deviceType})`,
+        this.device.id,
+        "SetBinaryState"
+      );
+    }
+    const clamped = Math.max(0, Math.min(100, Math.round(level)));
+    // A nonzero request must never round down to off.
+    const effective = level > 0 && clamped === 0 ? 1 : clamped;
+    if (effective === 0) {
+      const state = await this.setBinaryState(0);
+      return { level: 0, state };
+    }
+    const response = await this.executeWithRetry<SetBinaryStateResponse>(
+      "SetBinaryState",
+      `<BinaryState>1</BinaryState><brightness>${effective}</brightness>`
+    );
+    return { level: effective, state: parseSetResponseState(response) };
   }
 
   /**
@@ -184,13 +287,30 @@ export class WemoDeviceClient {
    * @returns Device state including binary state and brightness (if applicable)
    */
   async getState(): Promise<DeviceState> {
-    const binaryState = await this.getBinaryState();
+    interface BinaryStateResponse {
+      BinaryState?: unknown;
+      brightness?: unknown;
+    }
 
-    const state: DeviceState = {
-      binaryState,
-    };
+    // One GetBinaryState round trip: power and brightness come from the
+    // same response, so they can never describe different moments, and
+    // a missing brightness element no longer discards a valid power
+    // state.
+    const response = await this.executeWithRetry<BinaryStateResponse>("GetBinaryState");
 
-    // TODO: Add brightness support for dimmer devices
+    // Unknown (not off) for a missing or garbage BinaryState: reporting
+    // it as off would fabricate a state the device never reported, and
+    // the service would emit stateChanged for that made-up "off".
+    const parsed = parseBinaryStateField(response.BinaryState);
+    const state: DeviceState = {};
+    if (parsed === 0 || parsed === 1 || parsed === 8) {
+      state.binaryState = parsed;
+    }
+
+    const brightness = extractNumericValue(response.brightness);
+    if (brightness !== undefined) {
+      state.brightness = Math.max(0, Math.min(100, brightness));
+    }
 
     return state;
   }
@@ -223,8 +343,19 @@ export class WemoDeviceClient {
    *
    * @returns The new state after toggling
    */
-  async toggle(): Promise<DeviceState> {
+  async toggle(): Promise<{ binaryState: 0 | 1 }> {
     const currentState = await this.getBinaryState();
+    // Refuse when the current state is unknown: guessing off would
+    // send "on" to a device that is already on. The read is fresh
+    // (getBinaryState does a live SOAP read), so an unreadable value
+    // is not a stale cache — it is a state that cannot be determined.
+    if (currentState === undefined) {
+      throw new DeviceError(
+        "Cannot toggle: current state is unknown (BinaryState unreadable)",
+        this.device.id,
+        "toggle"
+      );
+    }
     // Explicitly type the new state to avoid unsafe assertion
     const newState: 0 | 1 = currentState === 0 ? 1 : 0;
     await this.setBinaryState(newState);

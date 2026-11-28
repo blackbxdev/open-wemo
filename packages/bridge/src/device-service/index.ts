@@ -23,7 +23,8 @@ import {
 } from "../wemo/keepalive";
 import { fetchRulesDb, parseAllRulesFromDb } from "../wemo/rules";
 import { clearDeviceRules } from "../wemo/scheduler";
-import type { SavedDevice, WemoDeviceType } from "../wemo/types";
+import { WemoDeviceType } from "../wemo/types";
+import type { DeviceState, SavedDevice } from "../wemo/types";
 import { DeviceEventBus } from "./events";
 import type { ControlResult, DeviceStateResult, DeviceWithState } from "./types";
 
@@ -109,8 +110,8 @@ export class DeviceService {
       return await withTimeout<DeviceStateResult>(
         (async (): Promise<DeviceStateResult> => {
           const client = await this.getDeviceClient(device);
-          const binaryState = await client.getBinaryState();
-          return { isOnline: true, state: binaryState };
+          const { binaryState, brightness } = await client.getState();
+          return { isOnline: true, state: binaryState, brightness };
         })(),
         6000,
         offlineResult
@@ -269,18 +270,23 @@ export class DeviceService {
     await client.turnOn();
     markManualOn(device.id);
     const newState = await client.getBinaryState();
+    // The write succeeded, but if the confirmation read was
+    // unreadable the resulting state is unknown: report unknown and
+    // emit nothing, rather than claiming a state not observed.
     const result: ControlResult = {
       id: device.id,
       action: "on",
-      state: newState,
-      isOn: newState === 1,
     };
-    this.events.emit("stateChanged", {
-      id: device.id,
-      state: newState,
-      isOn: result.isOn,
-      source,
-    });
+    if (newState !== undefined) {
+      result.state = newState;
+      result.isOn = newState === 1;
+      this.events.emit("stateChanged", {
+        id: device.id,
+        state: newState,
+        isOn: newState === 1,
+        source,
+      });
+    }
     return result;
   }
 
@@ -291,18 +297,23 @@ export class DeviceService {
     await client.turnOff();
     markManualOff(device.id);
     const newState = await client.getBinaryState();
+    // The write succeeded, but if the confirmation read was
+    // unreadable the resulting state is unknown: report unknown and
+    // emit nothing, rather than claiming a state not observed.
     const result: ControlResult = {
       id: device.id,
       action: "off",
-      state: newState,
-      isOn: newState === 1,
     };
-    this.events.emit("stateChanged", {
-      id: device.id,
-      state: newState,
-      isOn: result.isOn,
-      source,
-    });
+    if (newState !== undefined) {
+      result.state = newState;
+      result.isOn = newState === 1;
+      this.events.emit("stateChanged", {
+        id: device.id,
+        state: newState,
+        isOn: newState === 1,
+        source,
+      });
+    }
     return result;
   }
 
@@ -327,28 +338,111 @@ export class DeviceService {
     this.events.emit("stateChanged", {
       id: device.id,
       state: binaryState,
-      isOn: result.isOn,
+      isOn: binaryState === 1,
       source,
     });
+    return result;
+  }
+
+  /** Sets the brightness level (0-100) on a standalone dimmer. */
+  async setBrightness(
+    deviceId: string,
+    level: number,
+    source: "api" | "matter" = "api"
+  ): Promise<ControlResult> {
+    const device = this.requireDevice(deviceId);
+    if (!Number.isFinite(level) || level < 0 || level > 100) {
+      throw new ValidationError("Invalid brightness: must be a number between 0 and 100", [
+        "brightness",
+      ]);
+    }
+    const client = await this.getDeviceClient(device);
+    // Gate on the discovered capability, not the saved record: only a
+    // standalone Dimmer accepts SetBinaryState brightness. A plain
+    // Switch would otherwise return 200 while merely toggling, and a
+    // Link-bridge Bulb needs SetDeviceStatus (capability 10008).
+    if (client.info.deviceType !== WemoDeviceType.Dimmer) {
+      throw new ValidationError(
+        `Device does not support brightness control (type: ${client.info.deviceType})`,
+        ["brightness"]
+      );
+    }
+    const { state: setState } = await client.setBrightness(level);
+    // The SetBinaryState response carries the device's confirmed state
+    // (BinaryState + brightness in the pyWeMo recordings), so use it
+    // when present and skip the readback. Only read back when the Set
+    // reply carried no state at all.
+    let state: DeviceState | undefined = setState;
+    if (!state) {
+      try {
+        state = await client.getState();
+      } catch {
+        state = undefined;
+      }
+    }
+    // The write was acknowledged, but when neither the Set reply nor a
+    // readback observed the resulting state, report unknown: omit
+    // state/isOn/brightness instead of the sent level. The sent level
+    // is not observed state, and Matter trusts stateChanged as the
+    // device's actual state, so the event is emitted only for
+    // observed state. The PWA leaves the slider where the user put it
+    // and the next poll reconciles.
+    const result: ControlResult = {
+      id: device.id,
+      action: "brightness",
+    };
+    if (state) {
+      // Report only what was observed. A readback whose BinaryState
+      // was garbage carries no power state (binaryState undefined):
+      // do not report it as off, and do not emit stateChanged for a
+      // state that was never observed. A brightness that did parse is
+      // still observed and is reported on its own.
+      if (state.binaryState !== undefined) {
+        result.state = state.binaryState;
+        result.isOn = state.binaryState === 1;
+        this.events.emit("stateChanged", {
+          id: device.id,
+          state: state.binaryState,
+          isOn: state.binaryState === 1,
+          source,
+        });
+      }
+      if (state.brightness !== undefined) {
+        result.brightness = state.brightness;
+      }
+    }
     return result;
   }
 
   /** Gets binary state (throws if offline). */
   async getBinaryState(deviceId: string): Promise<{
     id: string;
-    state: number;
-    isOn: boolean;
-    isStandby: boolean;
+    state?: number;
+    isOn?: boolean;
+    isStandby?: boolean;
+    brightness?: number;
   }> {
     const device = this.requireDevice(deviceId);
     const client = await this.getDeviceClient(device);
-    const state = await client.getBinaryState();
-    return {
-      id: device.id,
-      state,
-      isOn: state === 1,
-      isStandby: state === 8,
-    };
+    const { binaryState, brightness } = await client.getState();
+    // Unknown (not off) for a garbage BinaryState: omit state/isOn/
+    // isStandby rather than reporting the device as off.
+    const result: {
+      id: string;
+      state?: number;
+      isOn?: boolean;
+      isStandby?: boolean;
+      brightness?: number;
+    } = { id: device.id };
+    if (binaryState !== undefined) {
+      result.state = binaryState;
+      result.isOn = binaryState === 1;
+      result.isStandby = binaryState === 8;
+    }
+    if (brightness !== undefined) {
+      result.brightness = brightness;
+    }
+    return result;
   }
 
   /** Insight power data. */

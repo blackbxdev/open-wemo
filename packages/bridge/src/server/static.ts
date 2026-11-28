@@ -22,6 +22,7 @@ import iconSvgPath from "../../../web/icons/icon.svg" with { type: "file" };
 import indexHtmlPath from "../../../web/index.html" with { type: "file" };
 import apiJsPath from "../../../web/js/api.js" with { type: "file" };
 import appJsPath from "../../../web/js/app.js" with { type: "file" };
+import brightnessActivityJsPath from "../../../web/js/brightness-activity.js" with { type: "file" };
 import loggerJsPath from "../../../web/js/logger.js" with { type: "file" };
 import setupModeJsPath from "../../../web/js/setup-mode.js" with { type: "file" };
 import timerPanelJsPath from "../../../web/js/timer-panel.js" with { type: "file" };
@@ -31,11 +32,15 @@ import swJsPath from "../../../web/sw.js" with { type: "file" };
 
 /**
  * Mapping of URL paths to embedded file paths.
+ * Exported so tests can verify every module the PWA imports is embedded:
+ * dev mode serves files from disk, so a module missing here only breaks
+ * compiled builds (a 404 for the import, and the app fails to load).
  */
-const EMBEDDED_FILES: Record<string, string> = {
+export const EMBEDDED_FILES: Record<string, string> = {
   "/index.html": String(indexHtmlPath),
   "/css/style.css": String(styleCssPath),
   "/js/app.js": String(appJsPath),
+  "/js/brightness-activity.js": String(brightnessActivityJsPath),
   "/js/api.js": String(apiJsPath),
   "/js/logger.js": String(loggerJsPath),
   "/js/setup-mode.js": String(setupModeJsPath),

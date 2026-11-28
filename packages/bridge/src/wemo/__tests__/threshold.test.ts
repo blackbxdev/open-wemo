@@ -1,32 +1,59 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-// ── Mocks ──────────────────────────────────────────────────────────────────────
+// ── Transport stub ─────────────────────────────────────────────────────────
+// The Insight client talks to the device with soapRequest, which POSTs
+// to the device. Stub fetch (the transport) instead of mocking ../soap:
+// the real SOAP envelope building, XML parsing, and value extraction
+// run, and no process-global mock.module override leaks into other
+// test files (device.test.ts and soap.test.ts need the real soap module
+// and broke under `bun test --randomize`).
+type FetchCall = { url: string; body: string; soapAction: string | undefined };
+const fetchCalls: FetchCall[] = [];
+const originalFetch = globalThis.fetch;
+// Inner XML queued for the next fetch call, one entry per call, in order.
+// The stub wraps each entry in the response element matching the
+// requested action, so a test queues just the fields it cares about.
+const queuedInnerXml: string[] = [];
+let nextFetchOk = true;
 
-const mockSoapRequest = mock(
-  (): Promise<{ success: boolean; data?: Record<string, unknown>; error?: string }> =>
-    Promise.resolve({ success: true, data: {} })
-);
-mock.module("../soap", () => ({
-  soapRequest: mockSoapRequest,
-  extractNumericValue: (value: unknown): number => {
-    if (typeof value === "number") return Number.isNaN(value) ? 0 : value;
-    const text =
-      typeof value === "string"
-        ? value
-        : value && typeof value === "object" && "#text" in value
-          ? String((value as { "#text": unknown })["#text"])
-          : "";
-    const num = Number(text);
-    return Number.isNaN(num) ? 0 : num;
-  },
-  extractTextValue: (value: unknown): string => {
-    if (typeof value === "string") return value;
-    if (typeof value === "number") return String(value);
-    if (value && typeof value === "object" && "#text" in value)
-      return String((value as { "#text": unknown })["#text"]);
-    return "";
-  },
-}));
+function queueSoapInner(innerXml: string): void {
+  queuedInnerXml.push(innerXml);
+}
+
+function stubFetch() {
+  globalThis.fetch = (async (
+    url: unknown,
+    init?: { body?: unknown; headers?: Record<string, string> }
+  ) => {
+    const body = String(init?.body ?? "");
+    const soapAction = init?.headers?.SOAPACTION;
+    fetchCalls.push({ url: String(url), body, soapAction });
+    if (!nextFetchOk) {
+      nextFetchOk = true;
+      return {
+        ok: false,
+        status: 500,
+        statusText: "Internal Server Error",
+        text: async () => "",
+      } as Response;
+    }
+    const action = (soapAction ?? "").replace(/"/g, "").split("#")[1] ?? "";
+    const inner = queuedInnerXml.shift() ?? "";
+    const xml = `<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"><s:Body><u:${action}Response xmlns:u="urn:Belkin:service:insight:1">${inner}</u:${action}Response></s:Body></s:Envelope>`;
+    return { ok: true, status: 200, text: async () => xml } as Response;
+  }) as typeof fetch;
+}
+
+beforeEach(() => {
+  fetchCalls.length = 0;
+  queuedInnerXml.length = 0;
+  nextFetchOk = true;
+  stubFetch();
+});
+
+afterEach(() => {
+  globalThis.fetch = originalFetch;
+});
 
 // ── Setup ──────────────────────────────────────────────────────────────────────
 
@@ -69,7 +96,6 @@ function createMockDevice(): WemoDevice {
 let client: InsightDeviceClient;
 
 beforeEach(() => {
-  mockSoapRequest.mockClear();
   client = new InsightDeviceClient(createMockDevice());
 });
 
@@ -78,27 +104,17 @@ beforeEach(() => {
 describe("InsightDeviceClient threshold methods", () => {
   describe("getPowerThreshold()", () => {
     test("calls soapRequest with correct parameters", async () => {
-      mockSoapRequest.mockResolvedValueOnce({
-        success: true,
-        data: { PowerThreshold: "8000" },
-      });
+      queueSoapInner("<PowerThreshold>8000</PowerThreshold>");
 
       await client.getPowerThreshold();
 
-      expect(mockSoapRequest).toHaveBeenCalledWith(
-        "192.168.1.100",
-        49153,
-        "/upnp/control/insight1",
-        "urn:Belkin:service:insight:1",
-        "GetPowerThreshold"
-      );
+      expect(fetchCalls).toHaveLength(1);
+      expect(fetchCalls[0]?.url).toBe("http://192.168.1.100:49153/upnp/control/insight1");
+      expect(fetchCalls[0]?.soapAction).toBe('"urn:Belkin:service:insight:1#GetPowerThreshold"');
     });
 
     test("returns number (milliwatts) from response", async () => {
-      mockSoapRequest.mockResolvedValueOnce({
-        success: true,
-        data: { PowerThreshold: "5000" },
-      });
+      queueSoapInner("<PowerThreshold>5000</PowerThreshold>");
 
       const result = await client.getPowerThreshold();
 
@@ -107,19 +123,13 @@ describe("InsightDeviceClient threshold methods", () => {
     });
 
     test("throws Error when response.success is false", async () => {
-      mockSoapRequest.mockResolvedValueOnce({
-        success: false,
-        error: "Device unreachable",
-      });
+      nextFetchOk = false;
 
       await expect(client.getPowerThreshold()).rejects.toThrow(/failed to get.*powerthreshold/i);
     });
 
     test("returns 0 for empty/missing PowerThreshold field", async () => {
-      mockSoapRequest.mockResolvedValueOnce({
-        success: true,
-        data: {},
-      });
+      queueSoapInner("");
 
       const result = await client.getPowerThreshold();
 
@@ -127,10 +137,7 @@ describe("InsightDeviceClient threshold methods", () => {
     });
 
     test("returns 0 for non-numeric PowerThreshold value", async () => {
-      mockSoapRequest.mockResolvedValueOnce({
-        success: true,
-        data: { PowerThreshold: "notanumber" },
-      });
+      queueSoapInner("<PowerThreshold>notanumber</PowerThreshold>");
 
       const result = await client.getPowerThreshold();
 
@@ -140,41 +147,27 @@ describe("InsightDeviceClient threshold methods", () => {
 
   describe("setPowerThreshold()", () => {
     test("calls soapRequest with correct parameters and body", async () => {
-      mockSoapRequest.mockResolvedValueOnce({
-        success: true,
-        data: {},
-      });
+      queueSoapInner("");
 
       await client.setPowerThreshold(5000);
 
-      expect(mockSoapRequest).toHaveBeenCalledWith(
-        "192.168.1.100",
-        49153,
-        "/upnp/control/insight1",
-        "urn:Belkin:service:insight:1",
-        "SetPowerThreshold",
-        "<PowerThreshold>5000</PowerThreshold>"
-      );
+      expect(fetchCalls).toHaveLength(1);
+      expect(fetchCalls[0]?.url).toBe("http://192.168.1.100:49153/upnp/control/insight1");
+      expect(fetchCalls[0]?.soapAction).toBe('"urn:Belkin:service:insight:1#SetPowerThreshold"');
+      expect(fetchCalls[0]?.body).toContain("<PowerThreshold>5000</PowerThreshold>");
     });
 
     test("uses correct service and controlURL", async () => {
-      mockSoapRequest.mockResolvedValueOnce({
-        success: true,
-        data: {},
-      });
+      queueSoapInner("");
 
       await client.setPowerThreshold(3000);
 
-      const call = mockSoapRequest.mock.calls[0] as unknown as string[];
-      expect(call[2]).toBe("/upnp/control/insight1");
-      expect(call[3]).toBe("urn:Belkin:service:insight:1");
+      expect(fetchCalls[0]?.url).toBe("http://192.168.1.100:49153/upnp/control/insight1");
+      expect(fetchCalls[0]?.soapAction).toBe('"urn:Belkin:service:insight:1#SetPowerThreshold"');
     });
 
     test("throws Error when response.success is false", async () => {
-      mockSoapRequest.mockResolvedValueOnce({
-        success: false,
-        error: "Device busy",
-      });
+      nextFetchOk = false;
 
       await expect(client.setPowerThreshold(5000)).rejects.toThrow(
         /failed to set.*powerthreshold/i
@@ -182,55 +175,37 @@ describe("InsightDeviceClient threshold methods", () => {
     });
 
     test("sends integer milliwatts in body", async () => {
-      mockSoapRequest.mockResolvedValueOnce({
-        success: true,
-        data: {},
-      });
+      queueSoapInner("");
 
       await client.setPowerThreshold(7500);
 
-      const call = mockSoapRequest.mock.calls[0] as unknown as string[];
-      expect(call[5]).toBe("<PowerThreshold>7500</PowerThreshold>");
+      expect(fetchCalls[0]?.body).toContain("<PowerThreshold>7500</PowerThreshold>");
     });
   });
 
   describe("resetPowerThreshold()", () => {
     test("calls soapRequest with ResetPowerThreshold action and 8000mW default", async () => {
-      mockSoapRequest.mockResolvedValueOnce({
-        success: true,
-        data: {},
-      });
+      queueSoapInner("");
 
       await client.resetPowerThreshold();
 
-      expect(mockSoapRequest).toHaveBeenCalledWith(
-        "192.168.1.100",
-        49153,
-        "/upnp/control/insight1",
-        "urn:Belkin:service:insight:1",
-        "ResetPowerThreshold",
-        "<PowerThreshold>8000</PowerThreshold>"
-      );
+      expect(fetchCalls).toHaveLength(1);
+      expect(fetchCalls[0]?.url).toBe("http://192.168.1.100:49153/upnp/control/insight1");
+      expect(fetchCalls[0]?.soapAction).toBe('"urn:Belkin:service:insight:1#ResetPowerThreshold"');
+      expect(fetchCalls[0]?.body).toContain("<PowerThreshold>8000</PowerThreshold>");
     });
 
     test("uses correct service and controlURL", async () => {
-      mockSoapRequest.mockResolvedValueOnce({
-        success: true,
-        data: {},
-      });
+      queueSoapInner("");
 
       await client.resetPowerThreshold();
 
-      const call = mockSoapRequest.mock.calls[0] as unknown as string[];
-      expect(call[2]).toBe("/upnp/control/insight1");
-      expect(call[3]).toBe("urn:Belkin:service:insight:1");
+      expect(fetchCalls[0]?.url).toBe("http://192.168.1.100:49153/upnp/control/insight1");
+      expect(fetchCalls[0]?.soapAction).toBe('"urn:Belkin:service:insight:1#ResetPowerThreshold"');
     });
 
     test("throws Error when response.success is false", async () => {
-      mockSoapRequest.mockResolvedValueOnce({
-        success: false,
-        error: "Connection timeout",
-      });
+      nextFetchOk = false;
 
       await expect(client.resetPowerThreshold()).rejects.toThrow(
         /failed to reset.*powerthreshold/i
