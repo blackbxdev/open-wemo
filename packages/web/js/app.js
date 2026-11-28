@@ -1161,41 +1161,51 @@ function handleBrightnessEnd(event) {
 async function commitBrightness(deviceId, value, slider, card) {
   brightnessActivity.beginWrite(deviceId);
   slider.disabled = true;
+  let timedOut = false;
 
   try {
     const result = await api.setBrightness(deviceId, value);
 
-    // Reconcile on the confirmed state. When the server has no
-    // brightness to report, the acknowledged write stands as-is.
-    const confirmed = typeof result.brightness === "number" ? Math.round(result.brightness) : value;
-
-    // Update local state
+    // Apply only observed state. When the server reports no
+    // brightness, the write's outcome is unknown: leave the device's
+    // recorded brightness and state alone (the next poll reconciles)
+    // and keep the slider where the user put it — the drag already
+    // set its value, fill, and label to the requested value.
     const device = state.devices.find((d) => d.id === deviceId);
     if (device) {
-      device.state = result.state;
-      device.brightness = confirmed;
       device.isOnline = true;
     }
-
-    // Sync the slider, label, toggle, and status text with the
-    // confirmed state
-    slider.value = String(confirmed);
-    slider.style.setProperty("--fill", `${confirmed}%`);
-    const label = card.querySelector("[data-brightness-value]");
-    if (label) {
-      label.textContent = `${confirmed}%`;
+    if (typeof result.brightness === "number") {
+      const confirmed = Math.round(result.brightness);
+      if (device) {
+        device.brightness = confirmed;
+      }
+      slider.value = String(confirmed);
+      slider.style.setProperty("--fill", `${confirmed}%`);
+      const label = card.querySelector("[data-brightness-value]");
+      if (label) {
+        label.textContent = `${confirmed}%`;
+      }
     }
-    const toggle = card.querySelector('[data-action="toggle"]');
-    if (toggle) {
-      toggle.checked = result.isOn;
+    if (device && typeof result.state === "number") {
+      device.state = result.state;
     }
-    updateDeviceCardState(card, result.state);
+    if (typeof result.isOn === "boolean") {
+      const toggle = card.querySelector('[data-action="toggle"]');
+      if (toggle) {
+        toggle.checked = result.isOn;
+      }
+    }
+    if (typeof result.state === "number") {
+      updateDeviceCardState(card, result.state);
+    }
   } catch (error) {
     if (error && error.code === "TIMEOUT") {
       // A timeout is an unknown outcome, not a failed write: the bridge
       // may still be confirming it (its readback can take up to ~30s).
       // Leave the slider at the requested value; the next poll
       // reconciles it. Only a definite failure reverts.
+      timedOut = true;
       console.log("[App] Brightness write timed out; leaving slider at requested value");
     } else {
       console.error("[App] Brightness change failed:", error);
@@ -1215,7 +1225,11 @@ async function commitBrightness(deviceId, value, slider, card) {
     }
   } finally {
     slider.disabled = false;
-    brightnessActivity.endWrite(deviceId);
+    // On a timeout the held render is discarded, not flushed: its
+    // data predates the write, and flushing it would revert the
+    // slider to the pre-write value even though the write's outcome
+    // is unknown. The next poll fetches fresh data and reconciles.
+    brightnessActivity.endWrite(deviceId, { flush: !timedOut });
   }
 }
 
@@ -1730,8 +1744,21 @@ async function loadDevices() {
   state.loading = true;
   state.error = null;
 
+  // A poll that started before the latest drag or write is stale: its
+  // data predates the interaction. Capture the epoch now and drop the
+  // result if the epoch advanced while it was in flight; the next poll
+  // fetches fresh data. The render guard alone cannot catch this —
+  // it holds the render but the stale data would still land.
+  const pollEpoch = brightnessActivity.epoch;
+  let dropped = false;
+
   try {
     const result = await api.getDevices(true);
+    if (brightnessActivity.isStale(pollEpoch)) {
+      log("[App] Dropping stale poll result (interaction started mid-poll)");
+      dropped = true;
+      return;
+    }
     state.devices = result.devices;
     state.error = null;
     state.isOffline = false;
@@ -1770,7 +1797,9 @@ async function loadDevices() {
     }
   } finally {
     state.loading = false;
-    renderDevices();
+    if (!dropped) {
+      renderDevices();
+    }
   }
 }
 

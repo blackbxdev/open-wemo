@@ -73,6 +73,7 @@ const SET_WITH_STATE = soapResponse(
   "<BinaryState>1</BinaryState><brightness>45</brightness>"
 );
 const SET_EMPTY = soapResponse("SetBinaryState", "");
+const SET_STATE_NO_BRIGHTNESS = soapResponse("SetBinaryState", "<BinaryState>1</BinaryState>");
 const GET_DIFFERENT = soapResponse(
   "GetBinaryState",
   "<BinaryState>1</BinaryState><brightness>99</brightness>"
@@ -179,38 +180,62 @@ describe("DeviceService.setBrightness", () => {
     expect(fetchCalls).toHaveLength(0);
   });
 
-  test("readback failure returns the sent level and emits no stateChanged", async () => {
+  test("readback failure returns unknown and emits no stateChanged", async () => {
     const service = makeService(WemoDeviceType.Dimmer, WemoDeviceType.Dimmer);
     const { events, unsub } = captureStateChanged(service);
     // The Set reply carries no state, so the service reads back — and
-    // the readback fails. The acknowledged write still stands, but the
-    // state is unconfirmed, so no event is emitted for Matter to trust.
+    // the readback fails. The write was acknowledged, but its
+    // resulting state was never observed, so the result reports
+    // unknown (no state, isOn, or brightness) instead of the sent
+    // level, and no event is emitted for Matter to trust.
     nextSetResponseXml = SET_EMPTY;
     getError = new Error("Connection refused");
 
     const result = await service.setBrightness("dimmer-1", 60);
 
-    expect(result.brightness).toBe(60);
-    expect(result.state).toBe(1);
-    expect(result.isOn).toBe(true);
+    expect(result.brightness).toBeUndefined();
+    expect(result.state).toBeUndefined();
+    expect(result.isOn).toBeUndefined();
     expect(events).toHaveLength(0);
     expect(fetchCalls.some((c) => (c.soapAction ?? "").includes("GetBinaryState"))).toBe(true);
     unsub();
   });
 
-  test("readback timeout returns the sent level and emits no stateChanged", async () => {
+  test("readback timeout returns unknown and emits no stateChanged", async () => {
     const service = makeService(WemoDeviceType.Dimmer, WemoDeviceType.Dimmer);
     const { events, unsub } = captureStateChanged(service);
     nextSetResponseXml = SET_EMPTY;
     // A timeout is an unknown outcome, not a failed write: the device
-    // may have applied the level. Same handling as a readback failure.
+    // may have applied the level. Same handling as a readback failure:
+    // unknown, not the sent level.
     getError = new DOMException("The operation was aborted.", "AbortError");
 
     const result = await service.setBrightness("dimmer-1", 60);
 
-    expect(result.brightness).toBe(60);
-    expect(result.state).toBe(1);
+    expect(result.brightness).toBeUndefined();
+    expect(result.state).toBeUndefined();
+    expect(result.isOn).toBeUndefined();
     expect(events).toHaveLength(0);
+    unsub();
+  });
+
+  test("Set reply state without brightness reports state but unknown brightness", async () => {
+    const service = makeService(WemoDeviceType.Dimmer, WemoDeviceType.Dimmer);
+    const { events, unsub } = captureStateChanged(service);
+    // The Set reply confirms the power state but carries no brightness:
+    // the power state is observed (and the event is emitted), but the
+    // brightness is unknown, not the sent level.
+    nextSetResponseXml = SET_STATE_NO_BRIGHTNESS;
+    nextGetResponseXml = GET_DIFFERENT;
+
+    const result = await service.setBrightness("dimmer-1", 60);
+
+    expect(result.state).toBe(1);
+    expect(result.isOn).toBe(true);
+    expect(result.brightness).toBeUndefined();
+    expect(fetchCalls).toHaveLength(1);
+    expect(events).toHaveLength(1);
+    expect(events[0]).toEqual({ id: "dimmer-1", state: 1, isOn: true, source: "api" });
     unsub();
   });
 });

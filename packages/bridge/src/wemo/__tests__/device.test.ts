@@ -373,8 +373,8 @@ describe("WemoDeviceClient brightness", () => {
     });
   });
 
-  describe("toggle()", () => {
-    test("sends on when the reported state is garbage (garbage reads as off)", async () => {
+  describe("getBinaryState()", () => {
+    test("returns undefined for a garbage BinaryState", async () => {
       nextResponseXml = `<?xml version="1.0"?>
         <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">
           <s:Body>
@@ -383,10 +383,56 @@ describe("WemoDeviceClient brightness", () => {
             </u:GetBinaryStateResponse>
           </s:Body>
         </s:Envelope>`;
+      await expect(client.getBinaryState()).resolves.toBeUndefined();
+    });
+
+    test("returns undefined for a missing BinaryState", async () => {
+      nextResponseXml = `<?xml version="1.0"?>
+        <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">
+          <s:Body>
+            <u:GetBinaryStateResponse xmlns:u="urn:Belkin:service:basicevent:1">
+            </u:GetBinaryStateResponse>
+          </s:Body>
+        </s:Envelope>`;
+      await expect(client.getBinaryState()).resolves.toBeUndefined();
+    });
+  });
+
+  describe("toggle()", () => {
+    test("sends off when the device is on", async () => {
+      // Default fixture (RTOS v2) reports BinaryState 1.
       const state = await client.toggle();
-      expect(state.binaryState).toBe(1);
+      expect(state.binaryState).toBe(0);
       expect(fetchCalls).toHaveLength(2);
-      expect(fetchCalls[1]?.body).toContain("<BinaryState>1</BinaryState>");
+      expect(fetchCalls[1]?.body).toContain("<BinaryState>0</BinaryState>");
+    });
+
+    test("refuses when the reported state is garbage instead of guessing", async () => {
+      nextResponseXml = `<?xml version="1.0"?>
+        <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">
+          <s:Body>
+            <u:GetBinaryStateResponse xmlns:u="urn:Belkin:service:basicevent:1">
+              <BinaryState>garbage</BinaryState>
+            </u:GetBinaryStateResponse>
+          </s:Body>
+        </s:Envelope>`;
+      // Guessing off would send "on" to a device that may already be
+      // on. Refuse, and send nothing: only the state read, no Set.
+      await expect(client.toggle()).rejects.toThrow(/state is unknown/);
+      expect(fetchCalls).toHaveLength(1);
+      expect(fetchCalls[0]?.soapAction).toContain("GetBinaryState");
+    });
+
+    test("refuses when the BinaryState is missing", async () => {
+      nextResponseXml = `<?xml version="1.0"?>
+        <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">
+          <s:Body>
+            <u:GetBinaryStateResponse xmlns:u="urn:Belkin:service:basicevent:1">
+            </u:GetBinaryStateResponse>
+          </s:Body>
+        </s:Envelope>`;
+      await expect(client.toggle()).rejects.toThrow(/state is unknown/);
+      expect(fetchCalls).toHaveLength(1);
     });
   });
 

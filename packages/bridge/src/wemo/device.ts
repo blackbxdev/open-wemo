@@ -209,13 +209,19 @@ export class WemoDeviceClient {
    *
    * @returns 0 for off, 1 for on, 8 for standby (Insight devices)
    */
-  async getBinaryState(): Promise<0 | 1 | 8> {
+  async getBinaryState(): Promise<0 | 1 | 8 | undefined> {
     interface BinaryStateResponse {
       BinaryState?: unknown;
     }
 
     const response = await this.executeWithRetry<BinaryStateResponse>("GetBinaryState");
-    return normalizeBinaryState(response.BinaryState);
+    // Undefined (unknown) for a missing or garbage BinaryState, not
+    // off: a caller that acts on the state must not guess. toggle()
+    // refuses on unknown, and a write confirmation reports unknown
+    // instead of claiming a state it did not observe. (getState()
+    // keeps normalizing garbage to off for display and polling.)
+    const state = parseBinaryStateField(response.BinaryState);
+    return state === 0 || state === 1 || state === 8 ? state : undefined;
   }
 
   /**
@@ -348,6 +354,17 @@ export class WemoDeviceClient {
    */
   async toggle(): Promise<DeviceState> {
     const currentState = await this.getBinaryState();
+    // Refuse when the current state is unknown: guessing off would
+    // send "on" to a device that is already on. The read is fresh
+    // (getBinaryState does a live SOAP read), so an unreadable value
+    // is not a stale cache — it is a state that cannot be determined.
+    if (currentState === undefined) {
+      throw new DeviceError(
+        "Cannot toggle: current state is unknown (BinaryState unreadable)",
+        this.device.id,
+        "toggle"
+      );
+    }
     // Explicitly type the new state to avoid unsafe assertion
     const newState: 0 | 1 = currentState === 0 ? 1 : 0;
     await this.setBinaryState(newState);

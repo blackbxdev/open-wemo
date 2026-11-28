@@ -270,18 +270,23 @@ export class DeviceService {
     await client.turnOn();
     markManualOn(device.id);
     const newState = await client.getBinaryState();
+    // The write succeeded, but if the confirmation read was
+    // unreadable the resulting state is unknown: report unknown and
+    // emit nothing, rather than claiming a state not observed.
     const result: ControlResult = {
       id: device.id,
       action: "on",
-      state: newState,
-      isOn: newState === 1,
     };
-    this.events.emit("stateChanged", {
-      id: device.id,
-      state: newState,
-      isOn: result.isOn,
-      source,
-    });
+    if (newState !== undefined) {
+      result.state = newState;
+      result.isOn = newState === 1;
+      this.events.emit("stateChanged", {
+        id: device.id,
+        state: newState,
+        isOn: newState === 1,
+        source,
+      });
+    }
     return result;
   }
 
@@ -292,18 +297,23 @@ export class DeviceService {
     await client.turnOff();
     markManualOff(device.id);
     const newState = await client.getBinaryState();
+    // The write succeeded, but if the confirmation read was
+    // unreadable the resulting state is unknown: report unknown and
+    // emit nothing, rather than claiming a state not observed.
     const result: ControlResult = {
       id: device.id,
       action: "off",
-      state: newState,
-      isOn: newState === 1,
     };
-    this.events.emit("stateChanged", {
-      id: device.id,
-      state: newState,
-      isOn: result.isOn,
-      source,
-    });
+    if (newState !== undefined) {
+      result.state = newState;
+      result.isOn = newState === 1;
+      this.events.emit("stateChanged", {
+        id: device.id,
+        state: newState,
+        isOn: newState === 1,
+        source,
+      });
+    }
     return result;
   }
 
@@ -328,7 +338,7 @@ export class DeviceService {
     this.events.emit("stateChanged", {
       id: device.id,
       state: binaryState,
-      isOn: result.isOn,
+      isOn: binaryState === 1,
       source,
     });
     return result;
@@ -357,7 +367,7 @@ export class DeviceService {
         ["brightness"]
       );
     }
-    const { level: effectiveLevel, state: setState } = await client.setBrightness(level);
+    const { state: setState } = await client.setBrightness(level);
     // The SetBinaryState response carries the device's confirmed state
     // (BinaryState + brightness in the pyWeMo recordings), so use it
     // when present and skip the readback. Only read back when the Set
@@ -370,24 +380,27 @@ export class DeviceService {
         state = undefined;
       }
     }
-    // The write was acknowledged even when its resulting state could
-    // not be observed, so the API still reports the sent level for the
-    // PWA (it shows the requested value and the next poll reconciles)
-    // instead of erroring. But stateChanged is emitted only for
-    // observed state: Matter trusts that event as the device's actual
-    // state, and a level-implied state is not one.
+    // The write was acknowledged, but when neither the Set reply nor a
+    // readback observed the resulting state, report unknown: omit
+    // state/isOn/brightness instead of the sent level. The sent level
+    // is not observed state, and Matter trusts stateChanged as the
+    // device's actual state, so the event is emitted only for
+    // observed state. The PWA leaves the slider where the user put it
+    // and the next poll reconciles.
     const result: ControlResult = {
       id: device.id,
       action: "brightness",
-      state: state?.binaryState ?? (effectiveLevel > 0 ? 1 : 0),
-      isOn: state ? state.binaryState === 1 : effectiveLevel > 0,
-      brightness: state?.brightness ?? effectiveLevel,
     };
     if (state) {
+      result.state = state.binaryState;
+      result.isOn = state.binaryState === 1;
+      if (state.brightness !== undefined) {
+        result.brightness = state.brightness;
+      }
       this.events.emit("stateChanged", {
         id: device.id,
         state: state.binaryState,
-        isOn: result.isOn,
+        isOn: state.binaryState === 1,
         source,
       });
     }

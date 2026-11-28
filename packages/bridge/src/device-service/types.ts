@@ -12,12 +12,21 @@ export type DeviceStateResult = {
   error?: string;
 };
 
-/** Result of an on/off/toggle/brightness control action. */
+/**
+ * Result of an on/off/toggle/brightness control action.
+ * `state`, `isOn`, and `brightness` are present only when observed:
+ * when a write is acknowledged but its resulting state could not be
+ * observed (no Set-reply state and a failed readback), they are
+ * omitted — unknown — instead of reporting the sent level as if it
+ * were confirmed state. Matter trusts stateChanged as the device's
+ * actual state, so the event is likewise emitted only for observed
+ * state.
+ */
 export type ControlResult = {
   id: string;
   action: "on" | "off" | "toggle" | "brightness";
-  state: number;
-  isOn: boolean;
+  state?: number;
+  isOn?: boolean;
   brightness?: number;
 };
 

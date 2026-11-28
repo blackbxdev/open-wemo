@@ -100,6 +100,56 @@ describe("BrightnessActivity", () => {
     expect(activity.isWriting("dimmer-1")).toBe(false);
   });
 
+  test("a poll that started before the latest drag or write is stale", () => {
+    const activity = new BrightnessActivity(() => {});
+    const pollEpoch = activity.epoch;
+    expect(activity.isStale(pollEpoch)).toBe(false);
+    // A drag starts while the poll is in flight: its data predates
+    // the interaction and must be dropped, not applied.
+    activity.markActive("dimmer-1");
+    expect(activity.isStale(pollEpoch)).toBe(true);
+    // A poll that starts after the interaction is current.
+    expect(activity.isStale(activity.epoch)).toBe(false);
+  });
+
+  test("a poll that started before the latest write is stale", () => {
+    const activity = new BrightnessActivity(() => {});
+    const pollEpoch = activity.epoch;
+    activity.beginWrite("dimmer-1");
+    expect(activity.isStale(pollEpoch)).toBe(true);
+    expect(activity.isStale(activity.epoch)).toBe(false);
+  });
+
+  test("ending a timed-out write discards the held render instead of flushing it", () => {
+    // The held render's data predates the write; flushing it would
+    // revert the slider to the pre-write value even though the
+    // write's outcome is unknown. The next poll reconciles instead.
+    let applied = 0;
+    const activity = new BrightnessActivity(() => {
+      applied++;
+    });
+    activity.beginWrite("dimmer-1");
+    expect(activity.mayRender()).toBe(false);
+    activity.endWrite("dimmer-1", { flush: false });
+    expect(applied).toBe(0);
+    expect(activity.pendingRender).toBe(false);
+    expect(activity.size).toBe(0);
+    // The next poll applies immediately (nothing is pending).
+    expect(activity.mayRender()).toBe(true);
+  });
+
+  test("a render that proceeds clears the pending flag", () => {
+    let applied = 0;
+    const activity = new BrightnessActivity(() => {
+      applied++;
+    });
+    activity.markActive("dimmer-1");
+    expect(activity.mayRender()).toBe(false);
+    activity.clearActive("dimmer-1");
+    expect(applied).toBe(1);
+    expect(activity.pendingRender).toBe(false);
+  });
+
   test("marking the same device twice still clears on one clear", () => {
     let applied = 0;
     const activity = new BrightnessActivity(() => {
