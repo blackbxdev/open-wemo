@@ -5,6 +5,7 @@
  */
 
 import { extractNumericValue, extractTextValue, soapRequest } from "./soap";
+import { WemoDeviceType } from "./types";
 import type { DeviceState, WemoDevice, WemoService } from "./types";
 
 /**
@@ -17,6 +18,18 @@ const BASIC_EVENT_SERVICE = "urn:Belkin:service:basicevent:1";
  */
 const DEFAULT_RETRY_COUNT = 2;
 const DEFAULT_RETRY_DELAY = 500;
+
+/**
+ * Normalizes a parsed BinaryState value to 0, 1, or 8.
+ * Anything that is not 0 or 8 (including a missing value) is treated as
+ * on, matching the previous behavior for unrecognized values.
+ */
+function normalizeBinaryState(value: unknown): 0 | 1 | 8 {
+  const state = extractNumericValue(value);
+  if (state === 0) return 0;
+  if (state === 8) return 8;
+  return 1;
+}
 
 /**
  * Error thrown when a device operation fails.
@@ -161,12 +174,7 @@ export class WemoDeviceClient {
     }
 
     const response = await this.executeWithRetry<BinaryStateResponse>("GetBinaryState");
-    const state = extractNumericValue(response.BinaryState);
-
-    // Normalize to valid values
-    if (state === 0) return 0;
-    if (state === 8) return 8;
-    return 1;
+    return normalizeBinaryState(response.BinaryState);
   }
 
   /**
@@ -198,22 +206,38 @@ export class WemoDeviceClient {
   }
 
   /**
-   * Sets the brightness level (0-100) on dimmable devices.
+   * Sets the brightness level (0-100) on a standalone dimmer.
    * A level of 0 turns the device off; any other level turns it on
-   * at that brightness.
+   * at that brightness. A nonzero level that rounds to 0 (for example
+   * 0.4) is raised to 1, so it turns the device on instead of off.
+   *
+   * Only standalone Dimmers support this: a plain Switch would merely
+   * toggle on a positive level, and a Link-bridge Bulb needs
+   * SetDeviceStatus (level capability 10008), not SetBinaryState.
    *
    * @param level - Brightness level from 0 to 100
+   * @returns The effective level sent to the device (0-100)
    */
-  async setBrightness(level: number): Promise<void> {
+  async setBrightness(level: number): Promise<number> {
+    if (this.device.deviceType !== WemoDeviceType.Dimmer) {
+      throw new DeviceError(
+        `Device does not support brightness control (type: ${this.device.deviceType})`,
+        this.device.id,
+        "SetBinaryState"
+      );
+    }
     const clamped = Math.max(0, Math.min(100, Math.round(level)));
-    if (clamped === 0) {
+    // A nonzero request must never round down to off.
+    const effective = level > 0 && clamped === 0 ? 1 : clamped;
+    if (effective === 0) {
       await this.setBinaryState(0);
-      return;
+      return 0;
     }
     await this.executeWithRetry(
       "SetBinaryState",
-      `<BinaryState>1</BinaryState><brightness>${clamped}</brightness>`
+      `<BinaryState>1</BinaryState><brightness>${effective}</brightness>`
     );
+    return effective;
   }
 
   /**
@@ -222,15 +246,24 @@ export class WemoDeviceClient {
    * @returns Device state including binary state and brightness (if applicable)
    */
   async getState(): Promise<DeviceState> {
-    const binaryState = await this.getBinaryState();
+    interface BinaryStateResponse {
+      BinaryState?: unknown;
+      brightness?: unknown;
+    }
+
+    // One GetBinaryState round trip: power and brightness come from the
+    // same response, so they can never describe different moments, and
+    // a missing brightness element no longer discards a valid power
+    // state.
+    const response = await this.executeWithRetry<BinaryStateResponse>("GetBinaryState");
 
     const state: DeviceState = {
-      binaryState,
+      binaryState: normalizeBinaryState(response.BinaryState),
     };
 
-    const brightness = await this.getBrightness();
+    const brightness = extractNumericValue(response.brightness);
     if (brightness !== undefined) {
-      state.brightness = brightness;
+      state.brightness = Math.max(0, Math.min(100, brightness));
     }
 
     return state;

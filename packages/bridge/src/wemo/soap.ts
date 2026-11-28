@@ -320,9 +320,20 @@ export function extractTextValue(value: unknown): string {
 
 /**
  * Extracts a numeric value from a parsed XML element.
+ *
+ * Returns undefined when the value is absent, empty, or malformed, so
+ * callers can tell "not reported" apart from a real 0. In particular, a
+ * dimmer that reports no <brightness> element has unknown brightness,
+ * not brightness 0.
  */
-export function extractNumericValue(value: unknown): number {
+export function extractNumericValue(value: unknown): number | undefined {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
   const text = extractTextValue(value);
+  if (text.trim() === "") {
+    return undefined;
+  }
   const num = Number(text);
-  return Number.isNaN(num) ? 0 : num;
+  return Number.isNaN(num) ? undefined : num;
 }

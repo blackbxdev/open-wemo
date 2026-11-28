@@ -1,0 +1,8 @@
+<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/"><s:Body>
+<u:SetBinaryStateResponse xmlns:u="urn:Belkin:service:basicevent:1">
+<BinaryState>1</BinaryState>
+<CountdownEndTime>0</CountdownEndTime>
+<deviceCurrentTime>1627611121</deviceCurrentTime>
+<brightness>45</brightness>
+</u:SetBinaryStateResponse>
+</s:Body> </s:Envelope>

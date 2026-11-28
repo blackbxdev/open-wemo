@@ -176,7 +176,9 @@ export class InsightDeviceClient extends WemoDeviceClient {
       throw new Error(`Failed to get PowerThreshold: ${response.error}`);
     }
 
-    return extractNumericValue(response.data?.PowerThreshold);
+    // A missing/malformed threshold stays 0 here (pinned by
+    // threshold.test.ts); only brightness treats absence as unknown.
+    return extractNumericValue(response.data?.PowerThreshold) ?? 0;
   }
 
   async setPowerThreshold(milliwatts: number): Promise<void> {

@@ -137,12 +137,16 @@ describe("extractNumericValue", () => {
     expect(extractNumericValue({ "#text": "789" })).toBe(789);
   });
 
-  test("returns 0 for non-numeric", () => {
-    expect(extractNumericValue("not a number")).toBe(0);
+  test("returns undefined for non-numeric", () => {
+    expect(extractNumericValue("not a number")).toBeUndefined();
   });
 
-  test("returns 0 for null/undefined", () => {
-    expect(extractNumericValue(null)).toBe(0);
-    expect(extractNumericValue(undefined)).toBe(0);
+  test("returns undefined for null/undefined", () => {
+    expect(extractNumericValue(null)).toBeUndefined();
+    expect(extractNumericValue(undefined)).toBeUndefined();
+  });
+
+  test("returns undefined for an empty string", () => {
+    expect(extractNumericValue("")).toBeUndefined();
   });
 });

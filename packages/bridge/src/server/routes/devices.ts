@@ -105,8 +105,17 @@ deviceRoutes.post("/:id/toggle", async (c) => {
  * at that brightness.
  */
 deviceRoutes.post("/:id/brightness", async (c) => {
-  const body = await c.req.json<{ brightness?: unknown }>();
+  let body: { brightness?: unknown };
+  try {
+    body = await c.req.json<{ brightness?: unknown }>();
+  } catch {
+    throw new ValidationError('Invalid JSON body: expected { "brightness": <number> }', [
+      "brightness",
+    ]);
+  }
   if (
+    body === null ||
+    typeof body !== "object" ||
     typeof body.brightness !== "number" ||
     !Number.isFinite(body.brightness) ||
     body.brightness < 0 ||
@@ -116,11 +125,10 @@ deviceRoutes.post("/:id/brightness", async (c) => {
       "brightness",
     ]);
   }
-  const result = await getDeviceService().setBrightness(
-    c.req.param("id"),
-    Math.round(body.brightness),
-    "api"
-  );
+  // Pass the raw value through: the client rounds it and raises a
+  // nonzero level that would round to 0 up to 1, so 0.4 turns the
+  // device on at 1% instead of turning it off.
+  const result = await getDeviceService().setBrightness(c.req.param("id"), body.brightness, "api");
   return c.json(result);
 });
 

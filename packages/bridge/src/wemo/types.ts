@@ -88,7 +88,8 @@ export interface DeviceState {
   binaryState: 0 | 1 | 8;
   /**
    * Brightness level for dimmable devices (0-100).
-   * Only applicable for Dimmer and Bulb types.
+   * Only applicable for standalone Dimmer devices. A Link-bridge Bulb
+   * reports no brightness here; it is controlled via SetDeviceStatus.
    */
   brightness?: number;
 }

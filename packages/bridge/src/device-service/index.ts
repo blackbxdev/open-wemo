@@ -23,7 +23,8 @@ import {
 } from "../wemo/keepalive";
 import { fetchRulesDb, parseAllRulesFromDb } from "../wemo/rules";
 import { clearDeviceRules } from "../wemo/scheduler";
-import type { SavedDevice, WemoDeviceType } from "../wemo/types";
+import { WemoDeviceType } from "../wemo/types";
+import type { DeviceState, SavedDevice } from "../wemo/types";
 import { DeviceEventBus } from "./events";
 import type { ControlResult, DeviceStateResult, DeviceWithState } from "./types";
 
@@ -333,7 +334,7 @@ export class DeviceService {
     return result;
   }
 
-  /** Sets the brightness level (0-100) on a dimmable device. */
+  /** Sets the brightness level (0-100) on a standalone dimmer. */
   async setBrightness(
     deviceId: string,
     level: number,
@@ -346,8 +347,29 @@ export class DeviceService {
       ]);
     }
     const client = await this.getDeviceClient(device);
-    await client.setBrightness(level);
-    const state = await client.getState();
+    // Gate on the discovered capability, not the saved record: only a
+    // standalone Dimmer accepts SetBinaryState brightness. A plain
+    // Switch would otherwise return 200 while merely toggling, and a
+    // Link-bridge Bulb needs SetDeviceStatus (capability 10008).
+    if (client.info.deviceType !== WemoDeviceType.Dimmer) {
+      throw new ValidationError(
+        `Device does not support brightness control (type: ${client.info.deviceType})`,
+        ["brightness"]
+      );
+    }
+    const effectiveLevel = await client.setBrightness(level);
+    // Confirm the new state from the device, but don't fail an
+    // acknowledged write when the readback fails: the light already
+    // changed, so report the level that was sent instead of erroring.
+    let state: DeviceState;
+    try {
+      state = await client.getState();
+    } catch {
+      state = {
+        binaryState: effectiveLevel > 0 ? 1 : 0,
+        brightness: effectiveLevel,
+      };
+    }
     const result: ControlResult = {
       id: device.id,
       action: "brightness",
